@@ -1,0 +1,11 @@
+build/
+scratch/
+out/
+.vs/
+*.user
+CMakeUserPresets.json
+media/
+*.wav
+*.mp3
+*.flac
+*.rsproj

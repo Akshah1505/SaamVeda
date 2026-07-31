@@ -1,0 +1,275 @@
+# 12 — Risk Register
+
+**Document version:** 1.0
+**Date:** 2026-07-25
+
+---
+
+## Scoring
+
+**Likelihood** and **Impact** are rated Low / Medium / High.
+**Severity** = the combination; 🔴 Critical · 🟠 High · 🟡 Medium · 🟢 Low.
+
+---
+
+## R1 🔴 Application Control policy blocks the toolchain
+
+| | |
+|---|---|
+| **Likelihood** | Medium | 
+| **Impact** | High — blocks all development |
+| **Evidence** | **Already observed.** A DLL was blocked during environment probing with "An Application Control policy has blocked this file" |
+
+Security software on the development machine has already demonstrated it will block DLL loading.
+The same policy could block compilers, linkers, freshly built binaries, or — most likely —
+**plugin scanning**, which loads arbitrary third-party DLLs and is precisely the behaviour such
+policies exist to prevent.
+
+**Mitigation**
+- Run the toolchain verification in [`08-toolchain-setup.md`](08-toolchain-setup.md) §3 **in week 1**,
+  before any other work. This is a deliberate go/no-go gate.
+- If blocked, resolve with whoever administers the machine before committing to the timeline.
+- Test plugin loading early — do not wait for Phase 7 to discover the policy blocks VST3 DLLs.
+
+**Contingency:** develop inside a VM or on a different machine. This would cost days, not hours,
+which is why the check happens in week 1.
+
+---
+
+## R2 🔴 Scope expectation versus deliverable
+
+| | |
+|---|---|
+| **Likelihood** | High |
+| **Impact** | High — a correct outcome judged a failure |
+
+The stated goal is full Audacity + FL Studio parity — 196 features against roughly 50 combined years
+of commercial development. The 16-week milestone delivers 93 of them. If the project is judged
+against "all features," it fails on paper despite succeeding in fact.
+
+**Mitigation**
+- [`01-project-charter.md`](01-project-charter.md) §5 states the scope reality explicitly and exists
+  to be read before any milestone review.
+- [`04-feature-backlog.md`](04-feature-backlog.md) records all 196 features with priorities so that
+  nothing appears cancelled — the difference between "later" and "never" is documented.
+- Milestone reviews are conducted against [`09-roadmap.md`](09-roadmap.md), not the backlog.
+
+---
+
+## R3 🟠 Single developer, part-time, fixed deadline
+
+| | |
+|---|---|
+| **Likelihood** | High |
+| **Impact** | Medium |
+
+One part-time developer at ~15–20 hours/week against a fixed semester deadline, with no slack for
+illness, coursework spikes, or exams. There is no bus factor above one.
+
+**Mitigation**
+- [`09-roadmap.md`](09-roadmap.md) §6 defines a pre-agreed cut order, with the decision point at
+  week 10 — before panic sets in.
+- Highest-risk work is front-loaded (toolchain week 1, plugin hosting weeks 9–10).
+- Every phase is independently demonstrable, so an incomplete project still shows working software.
+
+---
+
+## R4 🟠 Licence decision made by accident
+
+| | |
+|---|---|
+| **Likelihood** | Medium |
+| **Impact** | High — irreversible |
+
+Publishing source under AGPLv3 cannot be undone. A casual "let me put this on GitHub" during the
+semester would permanently foreclose any commercial option, without the decision ever being
+consciously made.
+
+**Mitigation**
+- Repository stays **private** until decision D2 is made ([`10-licensing-compliance.md`](10-licensing-compliance.md) §6).
+- D2 recorded in the charter's open-decisions table with an explicit "needed by" date.
+- Compliance checklist gates any public release.
+
+---
+
+## R5 🟠 GPL contamination from reference codebases
+
+| | |
+|---|---|
+| **Likelihood** | Medium |
+| **Impact** | High |
+
+The project explicitly studies LMMS, Ardour, Audacity, and Zrythm — all GPL or AGPL. Copying even a
+small amount of source would place the whole application under copyleft. The realistic failure mode
+is not deliberate theft but a "temporary" paste that is never removed.
+
+**Mitigation**
+- Working rules in [`10-licensing-compliance.md`](10-licensing-compliance.md) §3.
+- Prefer neutral algorithm sources — textbooks, papers — over reading GPL implementations.
+- Record in commit messages when a reference codebase informed a component.
+- Never paste as a placeholder. Placeholders ship.
+
+---
+
+## R6 🟠 Audio-thread violations discovered late
+
+| | |
+|---|---|
+| **Likelihood** | Medium |
+| **Impact** | High |
+
+Allocation or locking on the audio thread causes dropouts that are intermittent, unreproducible
+under a debugger, and expensive to fix once the design depends on them.
+
+**Mitigation**
+- Debug-build allocation/lock detector added in **Phase 2**, not later
+  ([`11-testing-strategy.md`](11-testing-strategy.md) §5). A detector added in Phase 11 would surface
+  an untriageable backlog and get disabled.
+- Architectural rule: the audio thread never reads the ValueTree
+  ([`06-data-model.md`](06-data-model.md) §7).
+- AddressSanitizer enabled in debug builds.
+
+---
+
+## R7 🟡 tracktion_engine learning curve
+
+| | |
+|---|---|
+| **Likelihood** | High |
+| **Impact** | Medium |
+
+Documentation is thinner than JUCE's; the examples are the real reference. Early phases may run
+slower than planned while the API is learned.
+
+**Mitigation**
+- Phase 1 is deliberately a walking skeleton, so the first contact is small.
+- Budget extra time in Phases 2–3; the roadmap allocates 3 weeks for what is nominally 2 weeks of work.
+- The wrapper in `engine/` contains the API surface, so learning is concentrated in one place.
+
+---
+
+## R8 🟡 Two sources of truth (our model vs tracktion's)
+
+| | |
+|---|---|
+| **Likelihood** | Medium |
+| **Impact** | Medium |
+
+`core/` holds the session model; tracktion_engine holds its own `Edit`. Divergence causes bugs that
+are hard to diagnose because both look correct in isolation.
+
+**Mitigation**
+- `engine/EngineController` solely owns synchronisation.
+- Where tracktion is authoritative (plugin state, transport position), we do not duplicate.
+- Save→load→render null tests catch divergence objectively.
+
+---
+
+## R9 🟡 Third-party plugin instability
+
+| | |
+|---|---|
+| **Likelihood** | High |
+| **Impact** | Medium |
+
+Plugins are arbitrary third-party code. Some crash, leak, or misreport latency. Until out-of-process
+hosting (B7.9, P2) lands, a bad plugin can take the application down — including during a demo.
+
+**Mitigation**
+- Scanning is out-of-process from Phase 7 (SRS-6.2), covering the most common crash point.
+- A vetted plugin set is used for the demo; nothing unknown is loaded live.
+- B7.9 is the first post-semester work item.
+
+**Accepted:** full hosting isolation is out of scope for the semester. This is a known gap.
+
+---
+
+## R10 🟡 Disk space
+
+| | |
+|---|---|
+| **Likelihood** | Medium |
+| **Impact** | Medium |
+
+Visual Studio with the C++ workload needs 20–40 GB. C: has 63 GB free. Adding build artefacts, JUCE,
+tracktion, plugins, and recorded audio, this gets tight.
+
+**Mitigation**
+- Relocate the VS download cache and shared components to D: (75 GB free) during installation.
+- Keep the repository and build output on D:.
+- `.gitignore` excludes audio and build directories.
+
+---
+
+## R11 🟡 Demo failure on the day
+
+| | |
+|---|---|
+| **Likelihood** | Medium |
+| **Impact** | High |
+
+Live audio demonstrations fail for reasons outside your control — a different room, borrowed
+hardware, a driver that changed, no audio interface.
+
+**Mitigation**
+- **Record a complete backup demo video in week 15**, before the presentation
+  ([`09-roadmap.md`](09-roadmap.md) Phase 13). Not optional.
+- Prepare a pre-built project so the demo does not depend on live recording succeeding.
+- Test on the actual presentation hardware beforehand if possible.
+- Have WASAPI as a fallback if ASIO misbehaves on unfamiliar hardware.
+
+---
+
+## R12 🟢 Framework licensing terms change
+
+| | |
+|---|---|
+| **Likelihood** | Low |
+| **Impact** | High |
+
+JUCE or Tracktion could alter their licensing. JUCE's terms have changed across major versions
+before.
+
+**Mitigation**
+- Submodules pinned to specific commits, so the current terms apply to the pinned version.
+- The `engine/` wrapper limits how deeply tracktion's API pervades the codebase.
+
+---
+
+## R13 🟢 Hardware failure
+
+| | |
+|---|---|
+| **Likelihood** | Low |
+| **Impact** | High |
+
+A single development machine holding all work.
+
+**Mitigation**
+- Git repository with frequent commits.
+- Off-machine backup — a private remote once D2 permits, or an encrypted external drive until then.
+- **Do not let the only copy of a semester's work live on one laptop.**
+
+---
+
+## Summary
+
+| ID | Risk | Severity |
+|---|---|:---:|
+| R1 | Application Control blocks the toolchain | 🔴 |
+| R2 | Scope expectation versus deliverable | 🔴 |
+| R3 | Single part-time developer | 🟠 |
+| R4 | Licence decision made by accident | 🟠 |
+| R5 | GPL contamination | 🟠 |
+| R6 | Audio-thread violations found late | 🟠 |
+| R7 | tracktion_engine learning curve | 🟡 |
+| R8 | Two sources of truth | 🟡 |
+| R9 | Third-party plugin instability | 🟡 |
+| R10 | Disk space | 🟡 |
+| R11 | Demo failure | 🟡 |
+| R12 | Licensing terms change | 🟢 |
+| R13 | Hardware failure | 🟢 |
+
+**The two critical risks are addressable this week.** R1 needs a 5-minute toolchain test; R2 needs
+the charter's scope statement read and agreed by whoever grades the project. Both are far cheaper to
+handle now than in November.
