@@ -11,15 +11,21 @@ FetchContent_Declare(Catch2
 FetchContent_MakeAvailable(Catch2)
 
 add_executable(SaamVedaTests
-    CoreSmokeTests.cpp)
+    CoreSmokeTests.cpp
+    SessionTests.cpp
+    ../src/core/Session.cpp)
 
 target_compile_features(SaamVedaTests PRIVATE cxx_std_20)
 
-# Deliberately NOT linked against juce or tracktion. docs/05-architecture.md
-# requires core/ to be testable with no UI and no engine, so the suite runs in
-# milliseconds. If this target ever needs juce_gui or tracktion to compile,
-# something has leaked downward and the layering is broken.
-target_link_libraries(SaamVedaTests PRIVATE Catch2::Catch2WithMain)
+# Deliberately not linked against JUCE UI or tracktion_engine. core/ uses
+# juce::ValueTree, but docs/05-architecture.md requires it to compile without
+# UI, audio devices, or engine dependencies.
+target_include_directories(SaamVedaTests PRIVATE ../src)
+target_link_libraries(SaamVedaTests PRIVATE
+    Catch2::Catch2WithMain
+    juce::juce_data_structures
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)

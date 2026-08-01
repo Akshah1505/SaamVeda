@@ -4,140 +4,294 @@ namespace saamveda::ui
 {
 
 MainComponent::MainComponent()
-    : deviceSelector (deviceManager,
-                      0, 2,    // min/max input channels
-                      0, 2,    // min/max output channels
-                      false,   // no MIDI input selector yet (Phase 5)
-                      false,   // no MIDI output selector
-                      true,    // stereo pairs
-                      false)   // show advanced options
+    : deviceSelector (engineController.audioDeviceManager(),
+                      0, 2, 0, 2,
+                      false, false, true, false)
 {
-    formatManager.registerBasicFormats();
+    playButton.onClick = [this] { engineController.play(); };
+    stopButton.onClick = [this]
+    {
+        engineController.stop();
+        engineController.seek (0.0);
+    };
+    loopButton.onClick = [this] { engineController.setLooping (loopButton.getToggleState()); };
+    metronomeButton.onClick = [this]
+    {
+        engineController.setMetronomeEnabled (metronomeButton.getToggleState());
+        actionStatusLabel.setText (metronomeButton.getToggleState() ? "Metronome enabled."
+                                                                    : "Metronome disabled.",
+                                   juce::dontSendNotification);
+    };
+    tapTempoButton.onClick = [this] { showTapTempo(); };
+    timeline.onSeek = [this] (double seconds)
+    {
+        engineController.seek (seconds);
+        actionStatusLabel.setText ("Moved playhead to " + juce::String (seconds, 2) + " s",
+                                   juce::dontSendNotification);
+    };
+    addTrackButton.onClick = [this] { addTrack(); };
+    importAudioButton.onClick = [this] { importAudio(); };
+    removeTrackButton.onClick = [this] { removeLastTrack(); };
+    undoButton.onClick = [this]
+    {
+        if (commands.undo())
+            engineController.synchronise (session);
+        refreshTrackSummary();
+    };
+    redoButton.onClick = [this]
+    {
+        if (commands.redo())
+            engineController.synchronise (session);
+        refreshTrackSummary();
+    };
 
-    // 0 inputs for now: Phase 1 only plays back. Recording arrives in Phase 4,
-    // at which point this needs revisiting along with input permissions.
-    if (auto error = deviceManager.initialiseWithDefaultDevices (0, 2); error.isNotEmpty())
-        setStatus ("Audio device error: " + error);
-    else
-        setStatus ("Ready. Open a WAV file to play.");
+    tempoSlider.setRange (20.0, 400.0, 1.0);
+    tempoSlider.setValue (engineController.tempo());
+    tempoSlider.setTextValueSuffix (" BPM");
+    tempoSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 70, 24);
+    tempoSlider.onValueChange = [this]
+    {
+        // Until automatic beat detection lands, imported recordings use 120 BPM
+        // as their reference. Keeping that implementation detail out of the UI
+        // gives the normal one-knob DAW workflow requested for this phase.
+        engineController.setTempo (tempoSlider.getValue());
+        session.state().setProperty ("tempo", tempoSlider.getValue(), nullptr);
+        timeline.setMusicalGrid (tempoSlider.getValue(), numeratorBox.getText().getIntValue(),
+                                 denominatorBox.getText().getIntValue());
+        actionStatusLabel.setText ("Tempo changed to " + juce::String (tempoSlider.getValue(), 0)
+                                       + " BPM; transport restarted from 0.",
+                                   juce::dontSendNotification);
+    };
 
-    sourcePlayer.setSource (&transport);
-    deviceManager.addAudioCallback (&sourcePlayer);
-    transport.addChangeListener (this);
+    for (int value = 1; value <= 16; ++value)
+        numeratorBox.addItem (juce::String (value), value);
+    for (auto value : { 1, 2, 4, 8, 16, 32 })
+        denominatorBox.addItem (juce::String (value), value);
+    numeratorBox.setSelectedId (4);
+    denominatorBox.setSelectedId (3); // item 3 is denominator 4
 
-    openButton.onClick = [this] { openFileClicked(); };
-    playButton.onClick = [this] { playClicked(); };
-    stopButton.onClick = [this] { stopClicked(); };
+    const auto updateTimeSignature = [this]
+    {
+        const int numerator = numeratorBox.getText().getIntValue();
+        const int denominator = denominatorBox.getText().getIntValue();
+        engineController.setTimeSignature (numerator, denominator);
+        session.state().setProperty ("timeSigNum", numerator, nullptr);
+        session.state().setProperty ("timeSigDenom", denominator, nullptr);
+        timeline.setMusicalGrid (tempoSlider.getValue(), numerator, denominator);
+        actionStatusLabel.setText ("Time signature changed to " + juce::String (numerator)
+                                       + "/" + juce::String (denominator)
+                                       + "; transport restarted from 0.",
+                                   juce::dontSendNotification);
+    };
+    numeratorBox.onChange = updateTimeSignature;
+    denominatorBox.onChange = updateTimeSignature;
 
-    playButton.setEnabled (false);
-    stopButton.setEnabled (false);
+    tempoLabel.setText ("Tempo BPM", juce::dontSendNotification);
+    timeSignatureLabel.setText ("Time signature", juce::dontSendNotification);
+    positionLabel.setJustificationType (juce::Justification::centredLeft);
+    trackSummaryLabel.setJustificationType (juce::Justification::centredLeft);
+    actionStatusLabel.setJustificationType (juce::Justification::centredLeft);
+    actionStatusLabel.setColour (juce::Label::textColourId, juce::Colour (0xffaeb4c3));
+    actionStatusLabel.setText ("Add a track to begin the arrangement.", juce::dontSendNotification);
 
-    statusLabel.setJustificationType (juce::Justification::centredLeft);
+    for (auto* component : std::initializer_list<juce::Component*>
+         { &playButton, &stopButton, &loopButton, &metronomeButton, &tapTempoButton,
+           &addTrackButton, &importAudioButton,
+           &removeTrackButton,
+           &undoButton, &redoButton,
+           &tempoSlider, &numeratorBox, &denominatorBox, &tempoLabel,
+           &timeSignatureLabel, &positionLabel, &trackSummaryLabel, &actionStatusLabel,
+           &timeline, &deviceSelector })
+        addAndMakeVisible (component);
 
-    addAndMakeVisible (deviceSelector);
-    addAndMakeVisible (openButton);
-    addAndMakeVisible (playButton);
-    addAndMakeVisible (stopButton);
-    addAndMakeVisible (statusLabel);
-
-    setSize (760, 560);
+    refreshTrackSummary();
+    timeline.setMusicalGrid (tempoSlider.getValue(), 4, 4);
+    startTimerHz (30);
+    setSize (900, 650);
 }
 
 MainComponent::~MainComponent()
 {
-    // Tear down in reverse order of setup, or the audio thread can call into
-    // a partially destroyed object.
-    transport.removeChangeListener (this);
-    deviceManager.removeAudioCallback (&sourcePlayer);
-    sourcePlayer.setSource (nullptr);
-    transport.setSource (nullptr);
+    stopTimer();
+    analysisPool.removeAllJobs (true, 5000);
 }
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+    g.fillAll (juce::Colour (0xff181a20));
 }
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced (8);
+    auto area = getLocalBounds().reduced (12);
+    auto transport = area.removeFromTop (34);
+    playButton.setBounds (transport.removeFromLeft (75).reduced (2));
+    stopButton.setBounds (transport.removeFromLeft (75).reduced (2));
+    loopButton.setBounds (transport.removeFromLeft (115).reduced (2));
+    metronomeButton.setBounds (transport.removeFromLeft (105).reduced (2));
+    tapTempoButton.setBounds (transport.removeFromLeft (95).reduced (2));
+    positionLabel.setBounds (transport.removeFromLeft (150).reduced (4, 2));
+    addTrackButton.setBounds (transport.removeFromRight (135).reduced (2));
+    importAudioButton.setBounds (transport.removeFromRight (120).reduced (2));
+    removeTrackButton.setBounds (transport.removeFromRight (135).reduced (2));
+    redoButton.setBounds (transport.removeFromRight (70).reduced (2));
+    undoButton.setBounds (transport.removeFromRight (70).reduced (2));
 
-    auto controls = area.removeFromTop (32);
-    openButton.setBounds (controls.removeFromLeft (120).reduced (2));
-    playButton.setBounds (controls.removeFromLeft (90).reduced (2));
-    stopButton.setBounds (controls.removeFromLeft (90).reduced (2));
+    auto settings = area.removeFromTop (34);
+    tempoLabel.setBounds (settings.removeFromLeft (52));
+    tempoSlider.setBounds (settings.removeFromLeft (190).reduced (2));
+    settings.removeFromLeft (12);
+    timeSignatureLabel.setBounds (settings.removeFromLeft (94));
+    numeratorBox.setBounds (settings.removeFromLeft (58).reduced (2));
+    denominatorBox.setBounds (settings.removeFromLeft (58).reduced (2));
+    trackSummaryLabel.setBounds (settings.reduced (8, 2));
 
-    statusLabel.setBounds (area.removeFromTop (28));
-    area.removeFromTop (8);
+    actionStatusLabel.setBounds (area.removeFromTop (32).reduced (4, 2));
+    timeline.setBounds (area.removeFromTop (230));
     deviceSelector.setBounds (area);
 }
 
-void MainComponent::openFileClicked()
+void MainComponent::timerCallback()
 {
-    chooser = std::make_unique<juce::FileChooser> ("Select an audio file",
-                                                   juce::File{},
-                                                   formatManager.getWildcardForAllFormats());
+    const auto seconds = engineController.positionSeconds();
+    timeline.setPosition (seconds);
+    positionLabel.setText (juce::String (seconds, 3) + " s", juce::dontSendNotification);
+    playButton.setEnabled (! engineController.isPlaying());
+    stopButton.setEnabled (engineController.isPlaying() || seconds > 0.0);
+    repaint();
+}
+
+void MainComponent::addTrack()
+{
+    const auto number = session.tracks().getNumChildren() + 1;
+    app::AddTrackCommand command ("audio", "Audio " + juce::String (number));
+    const auto added = commands.dispatch (command);
+    actionStatusLabel.setText (added ? "Added Audio " + juce::String (number)
+                                     : "Could not add the audio track.",
+                               juce::dontSendNotification);
+    refreshTrackSummary();
+}
+
+void MainComponent::removeLastTrack()
+{
+    const auto trackCount = session.tracks().getNumChildren();
+    if (trackCount == 0)
+        return;
+
+    const auto lastTrack = session.tracks().getChild (trackCount - 1);
+    if (engineController.removeAudioTrack (trackCount - 1)
+        && session.removeTrack (lastTrack.getProperty (core::Session::idProperty()).toString()))
+    {
+        actionStatusLabel.setText ("Removed " + lastTrack.getProperty ("name").toString(),
+                                   juce::dontSendNotification);
+        refreshTrackSummary();
+    }
+}
+
+void MainComponent::importAudio()
+{
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Import audio into a new track", juce::File{}, engineController.audioFileWildcard());
 
     const auto chooserFlags = juce::FileBrowserComponent::openMode
                             | juce::FileBrowserComponent::canSelectFiles;
-
-    chooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& fc)
+    fileChooser->launchAsync (chooserFlags, [this] (const juce::FileChooser& chooser)
     {
-        if (auto file = fc.getResult(); file != juce::File{})
-            loadFile (file);
+        const auto file = chooser.getResult();
+        if (! file.existsAsFile())
+            return;
+
+        const auto trackIndex = session.tracks().getNumChildren();
+        const auto duration = engineController.importAudioFile (file, trackIndex);
+        if (duration <= 0.0)
+        {
+            actionStatusLabel.setText ("Could not import " + file.getFileName(),
+                                       juce::dontSendNotification);
+            return;
+        }
+
+        app::ImportAudioCommand command (file, duration);
+        if (commands.dispatch (command))
+        {
+            timelineLengthSeconds = juce::jmax (60.0, duration);
+            timeline.setLength (timelineLengthSeconds);
+            actionStatusLabel.setText ("Imported " + file.getFileName(),
+                                       juce::dontSendNotification);
+            refreshTrackSummary();
+
+            actionStatusLabel.setText ("Imported " + file.getFileName() + "; detecting tempo...",
+                                       juce::dontSendNotification);
+            analysisPool.addJob ([safeThis = juce::Component::SafePointer<MainComponent> (this), file]
+            {
+                const auto result = services::detectTempo (file);
+                juce::MessageManager::callAsync ([safeThis, result]
+                {
+                    if (safeThis == nullptr)
+                        return;
+
+                    if (result.bpm > 0.0)
+                    {
+                        // Detection synchronizes the metronome to the imported
+                        // recording; it must not time-stretch that recording.
+                        safeThis->engineController.setDetectedTempo (result.bpm);
+                        safeThis->engineController.alignFirstBeat (result.firstBeatSeconds);
+                        safeThis->tempoSlider.setValue (result.bpm, juce::dontSendNotification);
+                        safeThis->session.state().setProperty ("tempo", result.bpm, nullptr);
+                        safeThis->timeline.setMusicalGrid (
+                            result.bpm,
+                            safeThis->numeratorBox.getText().getIntValue(),
+                            safeThis->denominatorBox.getText().getIntValue());
+                        safeThis->actionStatusLabel.setText (
+                            "Detected " + juce::String (result.bpm, 1)
+                                + " BPM; original audio unchanged, metronome synchronized.",
+                            juce::dontSendNotification);
+                    }
+                    else
+                    {
+                        safeThis->actionStatusLabel.setText (
+                            "Tempo could not be detected; using "
+                                + juce::String (safeThis->tempoSlider.getValue(), 0) + " BPM.",
+                            juce::dontSendNotification);
+                    }
+                });
+            });
+        }
     });
 }
 
-void MainComponent::loadFile (const juce::File& file)
+void MainComponent::showTapTempo()
 {
-    // Reader is owned by the source, which is swapped in only after it is fully
-    // prepared. The old source is released after the transport has let it go.
-    if (auto* reader = formatManager.createReaderFor (file))
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = "Tap Tempo";
+    options.dialogBackgroundColour = juce::Colour (0xff181a20);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+    options.content.setOwned (new TapTempoComponent ([safeThis = juce::Component::SafePointer<MainComponent> (this)] (double bpm)
     {
-        auto newSource = std::make_unique<juce::AudioFormatReaderSource> (reader, true);
+        if (safeThis == nullptr)
+            return;
 
-        transport.setSource (newSource.get(),
-                             0, nullptr,
-                             reader->sampleRate);
-
-        readerSource = std::move (newSource);
-
-        playButton.setEnabled (true);
-        setStatus (file.getFileName()
-                   + "  |  " + juce::String (reader->sampleRate, 0) + " Hz"
-                   + "  |  " + juce::String (reader->numChannels) + " ch"
-                   + "  |  " + juce::String (transport.getLengthInSeconds(), 2) + " s");
-    }
-    else
-    {
-        setStatus ("Could not read: " + file.getFileName());
-    }
+        safeThis->engineController.setTapTempo (bpm);
+        safeThis->tempoSlider.setValue (bpm, juce::dontSendNotification);
+        safeThis->engineController.setMetronomeEnabled (true);
+        safeThis->metronomeButton.setToggleState (true, juce::dontSendNotification);
+        safeThis->actionStatusLabel.setText (
+            "Tap tempo applied: " + juce::String (bpm, 1)
+                + " BPM. Song and playhead unchanged.",
+            juce::dontSendNotification);
+    }));
+    options.launchAsync();
 }
 
-void MainComponent::playClicked()
+void MainComponent::refreshTrackSummary()
 {
-    transport.start();
-}
-
-void MainComponent::stopClicked()
-{
-    transport.stop();
-    transport.setPosition (0.0);
-}
-
-void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* source)
-{
-    if (source == &transport)
-    {
-        const bool playing = transport.isPlaying();
-        playButton.setEnabled (! playing && readerSource != nullptr);
-        stopButton.setEnabled (playing);
-    }
-}
-
-void MainComponent::setStatus (const juce::String& text)
-{
-    statusLabel.setText (text, juce::dontSendNotification);
+    timeline.setSessionTracks (session.tracks());
+    trackSummaryLabel.setText (juce::String (session.tracks().getNumChildren()) + " session tracks",
+                               juce::dontSendNotification);
+    undoButton.setEnabled (session.undoManager().canUndo());
+    redoButton.setEnabled (session.undoManager().canRedo());
+    repaint();
 }
 
 } // namespace saamveda::ui

@@ -2,20 +2,18 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
+#include "../app/CommandBus.h"
+#include "../engine/EngineController.h"
+#include "TimelineComponent.h"
+#include "TapTempoComponent.h"
+#include "../services/TempoDetector.h"
+
+
 namespace saamveda::ui
 {
 
-/** Phase 1 walking skeleton.
-
-    Proves the toolchain end to end: a window opens, a real audio device can be
-    selected, and a WAV file plays audibly.
-
-    This is deliberately throwaway. From Phase 2 the UI issues commands and reads
-    from the session model; it never owns transport state like this.
-    See docs/05-architecture.md section 8.
-*/
 class MainComponent : public juce::Component,
-                      private juce::ChangeListener
+                      private juce::Timer
 {
 public:
     MainComponent();
@@ -25,29 +23,35 @@ public:
     void resized() override;
 
 private:
-    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void timerCallback() override;
+    void addTrack();
+    void removeLastTrack();
+    void importAudio();
+    void showTapTempo();
+    void refreshTrackSummary();
 
-    void openFileClicked();
-    void playClicked();
-    void stopClicked();
-    void loadFile (const juce::File&);
-    void setStatus (const juce::String&);
-
-    // Device manager must outlive the player, and the player the transport
-    // source, so declaration order here is load bearing.
-    juce::AudioDeviceManager deviceManager;
-    juce::AudioSourcePlayer sourcePlayer;
-    juce::AudioTransportSource transport;
-    std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
-    juce::AudioFormatManager formatManager;
+    core::Session session;
+    app::CommandBus commands { session };
+    engine::EngineController engineController;
 
     juce::AudioDeviceSelectorComponent deviceSelector;
-    juce::TextButton openButton  { "Open WAV..." };
-    juce::TextButton playButton  { "Play" };
-    juce::TextButton stopButton  { "Stop" };
-    juce::Label      statusLabel;
+    TimelineComponent timeline;
+    juce::TextButton playButton { "Play" };
+    juce::TextButton stopButton { "Stop" };
+    juce::ToggleButton loopButton { "Loop 0-16s" }, metronomeButton { "Metronome" };
+    juce::TextButton tapTempoButton { "Tap Tempo" };
+    juce::TextButton addTrackButton { "Add Audio Track" };
+    juce::TextButton importAudioButton { "Import Audio..." };
+    juce::TextButton removeTrackButton { "Remove Last Track" };
+    juce::TextButton undoButton { "Undo" };
+    juce::TextButton redoButton { "Redo" };
+    juce::Slider tempoSlider;
+    juce::ComboBox numeratorBox, denominatorBox;
+    juce::Label tempoLabel, timeSignatureLabel, positionLabel, trackSummaryLabel, actionStatusLabel;
 
-    std::unique_ptr<juce::FileChooser> chooser;
+    double timelineLengthSeconds = 60.0;
+    std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::ThreadPool analysisPool { 1 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

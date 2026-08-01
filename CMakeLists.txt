@@ -32,7 +32,12 @@ juce_add_gui_app(SaamVedaStudio
 
 target_sources(SaamVedaStudio PRIVATE
     src/Main.cpp
-    src/ui/MainComponent.cpp)
+    src/core/Session.cpp
+    src/engine/EngineController.cpp
+    src/services/TempoDetector.cpp
+    src/ui/MainComponent.cpp
+    src/ui/TapTempoComponent.cpp
+    src/ui/TimelineComponent.cpp)
 
 target_include_directories(SaamVedaStudio PRIVATE src)
 
@@ -41,7 +46,8 @@ target_compile_definitions(SaamVedaStudio PRIVATE
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_PLUGINHOST_VST3=1
-    JUCE_STRICT_REFCOUNTEDPOINTER=1)
+    JUCE_STRICT_REFCOUNTEDPOINTER=1
+    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1)
 
 target_link_libraries(SaamVedaStudio PRIVATE
     tracktion::tracktion_core
