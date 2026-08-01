@@ -2,27 +2,28 @@
 
 **Document version:** 1.0
 **Date:** 2026-07-25
-**Status:** ⚠️ **Reference only — nothing here has been executed.** No software has been installed.
+**Status:** Phase 1 setup executed and verified on 2026-08-01.
 
 ---
 
-## 1. Current machine state (verified 2026-07-25)
+## 1. Current machine state (verified 2026-08-01)
 
 | Component | Status |
 |---|---|
-| CPU | 16 cores ✅ — good for parallel C++ builds |
+| CPU | 12 logical processors — suitable for parallel C++ builds |
 | RAM | 16 GB ✅ |
-| Disk | D: 75 GB free · C: 63 GB free |
+| Disk | D: 86 GB free · C: 3.5 GB free at setup time — keep tools and builds on D: |
 | OS | Windows 11 Home Single Language, 10.0.26200 |
-| **Git** | 2.54.0 ✅ installed |
-| **ffmpeg** | 8.1.1 ✅ installed (useful later for codec work) |
-| **CMake** | ❌ **not installed** |
-| **Visual Studio / MSVC** | ❌ **not installed** — no VS2022, no Build Tools |
-| **Ninja** | ❌ not installed |
+| **Git** | 2.51.2 ✅ installed |
+| **ffmpeg** | Not available on the current PATH; verify before codec work |
+| **CMake** | 3.31.12 ✅ portable at `D:\Tools\cmake-3.31.12-windows-x86_64` |
+| **Visual Studio / MSVC** | VS 2022 Build Tools ✅; MSVC v143 14.42.34433 |
+| **Ninja** | 1.13.2 ✅ portable at `D:\Tools\ninja-1.13.2` |
 | Node.js / Python | v22.22.0 / 3.10.11 + 3.11.9 — present, not needed for this stack |
 | GPU | RTX 3050, 4 GB — irrelevant; audio work is CPU-bound |
 
-`D:\SaamVeda` currently contains only this documentation and is **not yet a git repository.**
+`D:\SaamVeda` is a git repository connected to a private GitHub remote. The CMake project builds
+successfully with the portable tools above.
 
 ## 2. ⚠️ Known risk before you begin
 
@@ -183,16 +184,16 @@ incremental builds are far quicker.
 
 Before declaring Phase 1 complete:
 
-- [ ] `cmake --version` reports ≥ 3.22
-- [ ] Step 3 toolchain test prints `toolchain ok`
-- [ ] **No Application Control blocks encountered**
-- [ ] `git status` works in `D:\SaamVeda`
-- [ ] Both submodules present with pinned commits recorded
-- [ ] Full build succeeds in Debug and Release
-- [ ] Application window opens
-- [ ] Audio device panel lists real devices
-- [ ] A WAV file plays audibly
-- [ ] Catch2 test suite runs with one passing test
+- [x] `cmake --version` reports ≥ 3.22 (3.31.12)
+- [x] Step 3 toolchain test prints `toolchain ok`
+- [x] **No Application Control blocks encountered** during compilation or application launch
+- [x] `git status` works in `D:\SaamVeda`
+- [x] tracktion_engine and its nested JUCE submodule are pinned and recorded
+- [x] Full build succeeds in Debug and Release
+- [x] Application window opens
+- [x] Audio device panel lists real devices
+- [x] A WAV file plays audibly
+- [x] Catch2 test suite runs with one passing test
 
 ## 6. Troubleshooting
 

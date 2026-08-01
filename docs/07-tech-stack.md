@@ -134,12 +134,12 @@ branches, so builds stay reproducible.
 
 | Component | Version | Pinned |
 |---|---|---|
-| JUCE | 8.x — exact version TBD at setup | Submodule commit |
-| tracktion_engine | develop branch — exact commit TBD | Submodule commit |
-| CMake | ≥ 3.22 | Documented minimum |
-| MSVC | Visual Studio 2022, v143 toolset | Documented |
+| JUCE | 8.0.13 | `37c894f83d379b2070d437ccd0f1cd9af9576` (nested submodule) |
+| tracktion_engine | 3.5.0 | `5714feb05c602c17553ba0cb7eeb6d80f64c86fc` |
+| CMake | 3.31.12 | Portable installation at `D:\Tools` |
+| MSVC | Visual Studio 2022 Build Tools, v143 14.42.34433 | Installed toolset |
 | C++ standard | C++20 | `CMAKE_CXX_STANDARD 20` |
-| Catch2 | v3.x | Submodule or FetchContent |
+| Catch2 | 3.7.1 | Pinned `FetchContent` tag |
 
 ## 6. Reference codebases (read-only)
 
