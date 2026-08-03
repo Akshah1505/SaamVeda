@@ -9,8 +9,16 @@ hosting, piano roll, mixing, automation, and export.
 
 ## Status
 
-**Pre-development.** No code has been written and no toolchain is installed. This repository
-currently contains planning and design documentation only.
+**Phase 2 of 13 complete** — see the [roadmap](docs/09-roadmap.md).
+
+The application builds and runs. It opens an audio device, plays audio, imports files onto tracks,
+detects their tempo, and drives a zoomable timeline with a synchronised playhead. Session state
+lives in a `ValueTree` behind a command bus, so every structural edit — tracks, clips, tempo, time
+signature — is undoable. Keyboard control follows Audacity
+([document 15](docs/15-keyboard-shortcuts.md)).
+
+Not yet built: recording, waveform display, clip editing, plugin hosting, piano roll, mixing,
+save/load, export. Those are Phases 3–12.
 
 ## Documentation
 
@@ -30,6 +38,7 @@ currently contains planning and design documentation only.
 | 12 | [Risk Register](docs/12-risk-register.md) | Identified risks and mitigations |
 | 13 | [Synopsis](docs/13-synopsis.md) | College submission abstract |
 | 14 | [Diagrams](docs/14-diagrams.md) | Use-case, DFD, class, sequence (Mermaid) |
+| 15 | [Keyboard Shortcuts](docs/15-keyboard-shortcuts.md) | Audacity-compatible key map |
 
 ## Quick facts
 
@@ -49,5 +58,27 @@ entirety and irreversibly foreclose a proprietary release. See
 
 ## Getting started
 
-Nothing to build yet. When development begins, start with
-[`docs/08-toolchain-setup.md`](docs/08-toolchain-setup.md).
+Install the toolchain per [`docs/08-toolchain-setup.md`](docs/08-toolchain-setup.md), then:
+
+```bash
+git submodule update --init --recursive
+```
+
+If that fails with `Permission denied (publickey)`, tracktion_engine's nested JUCE submodule is
+using an SSH URL. Redirect it to HTTPS and retry — see
+[Step 4](docs/08-toolchain-setup.md#step-4--repository-and-submodules).
+
+```bash
+powershell -File tools\build.ps1 build
+```
+
+The script locates CMake, Ninja, and MSVC itself; override with `SAAMVEDA_CMAKE`, `SAAMVEDA_NINJA`,
+or `SAAMVEDA_VCVARS` if it guesses wrong. Then:
+
+```bash
+powershell -File tools\build.ps1 test
+```
+
+```bash
+powershell -File tools\build.ps1 run
+```

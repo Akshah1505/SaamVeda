@@ -26,6 +26,19 @@ public:
 
     bool undo() { return session.undoManager().undo(); }
     bool redo() { return session.undoManager().redo(); }
+    bool canUndo() const { return session.undoManager().canUndo(); }
+    bool canRedo() const { return session.undoManager().canRedo(); }
+
+    juce::String undoDescription() const
+    {
+        return session.undoManager().getUndoDescription();
+    }
+
+    juce::String redoDescription() const
+    {
+        return session.undoManager().getRedoDescription();
+    }
+
     core::Session& getSession() noexcept { return session; }
 
 private:
@@ -49,6 +62,22 @@ public:
 
 private:
     juce::String type, nameValue, createdId;
+};
+
+class RemoveTrackCommand final : public Command
+{
+public:
+    explicit RemoveTrackCommand (juce::String trackId) : idValue (std::move (trackId)) {}
+
+    bool execute (core::Session& session) override
+    {
+        return session.removeTrack (idValue);
+    }
+
+    juce::String name() const override { return "Remove Track"; }
+
+private:
+    juce::String idValue;
 };
 
 class RenameTrackCommand final : public Command
@@ -77,15 +106,55 @@ public:
     bool execute (core::Session& session) override
     {
         auto track = session.addTrack ("audio", file.getFileNameWithoutExtension());
-        const auto trackId = track.getProperty (core::Session::idProperty()).toString();
-        return trackId.isNotEmpty() && session.addAudioClip (trackId, file, duration);
+        trackId = track.getProperty (core::Session::idProperty()).toString();
+        if (trackId.isEmpty())
+            return false;
+
+        auto clip = session.addAudioClip (trackId, file, duration);
+        clipId = clip.getProperty (core::Session::idProperty()).toString();
+        return clipId.isNotEmpty();
     }
 
     juce::String name() const override { return "Import Audio"; }
+    const juce::String& createdTrackId() const noexcept { return trackId; }
+    const juce::String& createdClipId() const noexcept { return clipId; }
 
 private:
     juce::File file;
     double duration;
+    juce::String trackId, clipId;
+};
+
+class SetTempoCommand final : public Command
+{
+public:
+    explicit SetTempoCommand (double bpm) : value (bpm) {}
+
+    bool execute (core::Session& session) override
+    {
+        return session.setTempo (value);
+    }
+
+    juce::String name() const override { return "Change Tempo"; }
+
+private:
+    double value;
+};
+
+class SetTimeSignatureCommand final : public Command
+{
+public:
+    SetTimeSignatureCommand (int num, int denom) : numerator (num), denominator (denom) {}
+
+    bool execute (core::Session& session) override
+    {
+        return session.setTimeSignature (numerator, denominator);
+    }
+
+    juce::String name() const override { return "Change Time Signature"; }
+
+private:
+    int numerator, denominator;
 };
 
 } // namespace saamveda::app

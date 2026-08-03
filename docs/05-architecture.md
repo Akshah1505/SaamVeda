@@ -205,7 +205,11 @@ D:\SaamVeda\
 2. **ValueTree performance at scale.** Very large sessions may stress change notification.
    Mitigation: measure at Phase 13 with a 100-track project before it becomes structural.
 3. **Audio-thread violations creeping in.** Mitigation: code review checklist, and a debug-build
-   allocation-detector on the audio thread from Phase 2.
+   allocation-detector on the audio thread from Phase 2 — implemented in
+   [`src/engine/RealtimeSanityCheck.cpp`](../src/engine/RealtimeSanityCheck.cpp), reported live in
+   the main window's status strip. It identifies the audio thread from a device callback and flags
+   any CRT heap allocation on it. Read the header for what it does *not* catch (`HeapAlloc`,
+   locking, file I/O) — those remain a review concern.
 4. **Wrapper becoming a bottleneck.** If every feature must pass through `EngineController`, it can
    grow into a god-class. Mitigation: split by concern (transport, recording, render, plugins) as
    soon as it exceeds roughly 500 lines.

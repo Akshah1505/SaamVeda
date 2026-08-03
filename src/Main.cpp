@@ -42,7 +42,15 @@ private:
             setUsingNativeTitleBar (true);
             setContentOwned (new ui::MainComponent(), true);
             setResizable (true, false);
-            centreWithSize (getWidth(), getHeight());
+            setResizeLimits (760, 520, 6000, 4000);
+
+            // The content's preferred size is in logical units; on a scaled
+            // display it can exceed the screen. Clamp to what actually fits so
+            // the transport row is never off the bottom or right edge.
+            auto available = juce::Desktop::getInstance().getDisplays()
+                                 .getPrimaryDisplay()->userArea;
+            centreWithSize (juce::jmin (getWidth(), available.getWidth() - 40),
+                            juce::jmin (getHeight(), available.getHeight() - 40));
             setVisible (true);
         }
 

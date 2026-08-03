@@ -6,6 +6,8 @@ namespace saamveda::core
 juce::Identifier Session::sessionType() { return { "SESSION" }; }
 juce::Identifier Session::tracksType()  { return { "TRACKS" }; }
 juce::Identifier Session::trackType()   { return { "TRACK" }; }
+juce::Identifier Session::clipsType()   { return { "CLIPS" }; }
+juce::Identifier Session::clipType()    { return { "CLIP" }; }
 juce::Identifier Session::idProperty()  { return { "id" }; }
 
 juce::String Session::newId()
@@ -48,6 +50,16 @@ juce::ValueTree Session::tracks() const
     return sessionState.getChildWithName (tracksType());
 }
 
+juce::ValueTree Session::trackWithId (const juce::String& trackId) const
+{
+    return tracks().getChildWithProperty (idProperty(), trackId);
+}
+
+juce::ValueTree Session::clipsOf (const juce::ValueTree& track) const
+{
+    return track.getChildWithName (clipsType());
+}
+
 juce::ValueTree Session::addTrack (juce::String type, juce::String name)
 {
     auto track = juce::ValueTree (trackType());
@@ -58,58 +70,83 @@ juce::ValueTree Session::addTrack (juce::String type, juce::String name)
     track.setProperty ("pan", 0.0f, &undo);
     track.setProperty ("mute", false, &undo);
     track.setProperty ("solo", false, &undo);
-    track.addChild (juce::ValueTree ("CLIPS"), -1, &undo);
+    track.addChild (juce::ValueTree (clipsType()), -1, &undo);
     tracks().addChild (track, -1, &undo);
     return track;
 }
 
-bool Session::addAudioClip (juce::String trackId, const juce::File& sourceFile, double lengthSeconds)
+juce::ValueTree Session::addAudioClip (juce::String trackId, const juce::File& sourceFile,
+                                       double lengthSeconds)
 {
-    auto children = tracks();
-    for (int i = 0; i < children.getNumChildren(); ++i)
-    {
-        auto track = children.getChild (i);
-        if (track.getProperty (idProperty()).toString() == trackId)
-        {
-            auto clips = track.getChildWithName ("CLIPS");
-            auto clip = juce::ValueTree ("CLIP");
-            clip.setProperty (idProperty(), newId(), &undo);
-            clip.setProperty ("name", sourceFile.getFileNameWithoutExtension(), &undo);
-            clip.setProperty ("start", 0.0, &undo);
-            clip.setProperty ("length", lengthSeconds, &undo);
-            clip.setProperty ("sourceFile", sourceFile.getFullPathName(), &undo);
-            clips.addChild (clip, -1, &undo);
-            return true;
-        }
-    }
-    return false;
+    auto track = trackWithId (trackId);
+    if (! track.isValid())
+        return {};
+
+    auto clip = juce::ValueTree (clipType());
+    clip.setProperty (idProperty(), newId(), &undo);
+    clip.setProperty ("name", sourceFile.getFileNameWithoutExtension(), &undo);
+    clip.setProperty ("start", 0.0, &undo);
+    clip.setProperty ("length", lengthSeconds, &undo);
+    clip.setProperty ("sourceFile", sourceFile.getFullPathName(), &undo);
+    clipsOf (track).addChild (clip, -1, &undo);
+    return clip;
 }
 
 bool Session::removeTrack (juce::String trackId)
 {
-    auto children = tracks();
-    for (int i = 0; i < children.getNumChildren(); ++i)
-        if (children.getChild (i).getProperty (idProperty()).toString() == trackId)
-        {
-            children.removeChild (i, &undo);
-            return true;
-        }
-    return false;
+    auto track = trackWithId (trackId);
+    if (! track.isValid())
+        return false;
+
+    tracks().removeChild (track, &undo);
+    return true;
 }
 
 bool Session::renameTrack (juce::String trackId, juce::String name)
 {
-    auto children = tracks();
-    for (int i = 0; i < children.getNumChildren(); ++i)
-    {
-        auto track = children.getChild (i);
-        if (track.getProperty (idProperty()).toString() == trackId)
-        {
-            track.setProperty ("name", std::move (name), &undo);
-            return true;
-        }
-    }
-    return false;
+    auto track = trackWithId (trackId);
+    if (! track.isValid())
+        return false;
+
+    track.setProperty ("name", std::move (name), &undo);
+    return true;
+}
+
+bool Session::setTempo (double bpm)
+{
+    const auto clamped = juce::jlimit (20.0, 400.0, bpm);
+    if (juce::approximatelyEqual (clamped, tempo()))
+        return false;
+
+    sessionState.setProperty ("tempo", clamped, &undo);
+    return true;
+}
+
+bool Session::setTimeSignature (int numerator, int denominator)
+{
+    const auto num = juce::jlimit (1, 32, numerator);
+    const auto denom = juce::jlimit (1, 32, denominator);
+    if (num == timeSignatureNumerator() && denom == timeSignatureDenominator())
+        return false;
+
+    sessionState.setProperty ("timeSigNum", num, &undo);
+    sessionState.setProperty ("timeSigDenom", denom, &undo);
+    return true;
+}
+
+double Session::tempo() const
+{
+    return static_cast<double> (sessionState.getProperty ("tempo", 120.0));
+}
+
+int Session::timeSignatureNumerator() const
+{
+    return static_cast<int> (sessionState.getProperty ("timeSigNum", 4));
+}
+
+int Session::timeSignatureDenominator() const
+{
+    return static_cast<int> (sessionState.getProperty ("timeSigDenom", 4));
 }
 
 } // namespace saamveda::core

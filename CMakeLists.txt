@@ -34,6 +34,7 @@ target_sources(SaamVedaStudio PRIVATE
     src/Main.cpp
     src/core/Session.cpp
     src/engine/EngineController.cpp
+    src/engine/RealtimeSanityCheck.cpp
     src/services/TempoDetector.cpp
     src/ui/MainComponent.cpp
     src/ui/TapTempoComponent.cpp
@@ -47,7 +48,11 @@ target_compile_definitions(SaamVedaStudio PRIVATE
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_PLUGINHOST_VST3=1
     JUCE_STRICT_REFCOUNTEDPOINTER=1
-    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1)
+    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
+    # Audio-thread allocation detector, required from Phase 2 by
+    # docs/05-architecture.md section 12. Debug configurations only: it hooks
+    # the debug CRT allocator and costs a branch per allocation.
+    SAAMVEDA_REALTIME_CHECKS=$<IF:$<CONFIG:Debug>,1,0>)
 
 target_link_libraries(SaamVedaStudio PRIVATE
     tracktion::tracktion_core

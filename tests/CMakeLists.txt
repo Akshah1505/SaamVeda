@@ -29,4 +29,10 @@ target_link_libraries(SaamVedaTests PRIVATE
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
-catch_discover_tests(SaamVedaTests)
+
+# PRE_TEST defers test enumeration to `ctest` time. The default (POST_BUILD)
+# runs the freshly-linked executable during the build, so anything that stops
+# the binary running - on this machine, Smart App Control blocking unsigned
+# builds - turns a successful compile into a failed build. Keeping discovery out
+# of the build makes that failure land where it belongs: on the test step.
+catch_discover_tests(SaamVedaTests DISCOVERY_MODE PRE_TEST)

@@ -111,6 +111,19 @@ Note that `tracktion_engine` pulls JUCE as its own dependency; confirm whether a
 submodule is needed or whether tracktion's copy should be used, to avoid two JUCE versions in one
 build.
 
+> **⚠️ The nested JUCE submodule uses an SSH URL.** `tracktion_engine`'s own `.gitmodules` points at
+> `git@github.com:juce-framework/JUCE.git`, so `git submodule update --init --recursive` fails with
+> `Permission denied (publickey)` on any machine without a GitHub SSH key. This is the single most
+> likely reason a fresh clone will not build. Redirect that one submodule to HTTPS — a local config
+> change that touches neither the global git config nor tracktion's tracked files:
+>
+> ```bash
+> git -C modules/tracktion_engine config submodule.modules/juce.url https://github.com/juce-framework/JUCE.git
+> git submodule update --init --recursive
+> ```
+>
+> Verify with `git submodule status --recursive`: a leading `-` means the submodule is still empty.
+
 ### Step 5 — `.gitignore`
 
 ```gitignore
