@@ -109,10 +109,12 @@ juce::Rectangle<int> TimelineComponent::soloButtonBounds (int trackIndex) const
 
 juce::Rectangle<int> TimelineComponent::nameBounds (int trackIndex) const
 {
+    // Nearly the full row height: this is a double-click target, and a thin
+    // band around the text is easy to miss.
     const auto row = rowBounds (trackIndex, headerArea());
     return row.withTrimmedLeft (10)
               .withTrimmedRight (row.getRight() - soloButtonBounds (trackIndex).getX() + 4)
-              .reduced (0, 14);
+              .reduced (0, 6);
 }
 
 int TimelineComponent::trackIndexAt (juce::Point<int> position) const

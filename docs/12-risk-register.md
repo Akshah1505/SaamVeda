@@ -254,7 +254,26 @@ A single development machine holding all work.
 
 ## Summary
 
-| ID | Risk | Severity |
+| ID > **Status update 2026-08-04 — the Application Control risk has materialised.**
+> Smart App Control is **Enforced** on the development machine
+> (`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState = 1`) and blocks
+> freshly linked, unsigned executables with CodeIntegrity event 3077. It is intermittent: the test
+> binary usually runs, the application binary is blocked most of the time, and a given build is
+> sometimes allowed and sometimes not. Both Debug and Release builds are affected.
+>
+> This does not stop development — compiling and unit testing are unaffected — but it does stop
+> running the application on demand, which makes visual verification unreliable and would make a
+> live demo a gamble.
+>
+> The only real fix is turning Smart App Control off, in Windows Security → App & browser control.
+> **That decision belongs to the machine's owner, and it is one-way: Smart App Control cannot be
+> switched back on without reinstalling Windows.** Signing the binary does not help, because Smart
+> App Control wants a signature it already trusts, not merely a valid one.
+>
+> Until it is decided, treat "the application ran" as something to confirm, not assume, and record
+> the demo video early as roadmap §13 already requires.
+
+| Risk | Severity |
 |---|---|:---:|
 | R1 | Application Control blocks the toolchain | 🔴 |
 | R2 | Scope expectation versus deliverable | 🔴 |
