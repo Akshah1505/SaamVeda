@@ -47,9 +47,9 @@ namespace
             display.setCaretVisible (false);
             display.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
                                                             13.0f, juce::Font::plain)));
-            display.setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xff181a20));
-            display.setColour (juce::TextEditor::textColourId, juce::Colour (0xffd6dae3));
-            display.setColour (juce::TextEditor::outlineColourId, juce::Colour (0xff323744));
+            display.setColour (juce::TextEditor::backgroundColourId, colours::windowBackground);
+            display.setColour (juce::TextEditor::textColourId, colours::text);
+            display.setColour (juce::TextEditor::outlineColourId, colours::outline);
             display.setText (text, false);
 
             addAndMakeVisible (display);
@@ -61,129 +61,182 @@ namespace
     private:
         juce::TextEditor display;
     };
+
+    /** Static text panel used for the About box. */
+    class AboutComponent final : public juce::Component
+    {
+    public:
+        AboutComponent()
+        {
+            text.setMultiLine (true);
+            text.setReadOnly (true);
+            text.setCaretVisible (false);
+            text.setColour (juce::TextEditor::backgroundColourId, colours::windowBackground);
+            text.setColour (juce::TextEditor::textColourId, colours::text);
+            text.setColour (juce::TextEditor::outlineColourId, colours::outline);
+            text.setText ("SaamVeda Studio 0.1.0\n\n"
+                          "A digital audio workstation for Windows, built on JUCE 8 and\n"
+                          "tracktion_engine.\n\n"
+                          "Phase 2 of 13 - session model, transport, and arrangement view.\n"
+                          "Recording, clip editing, plugins, piano roll, mixing, and export\n"
+                          "arrive in later phases; see docs/09-roadmap.md.",
+                          false);
+
+            addAndMakeVisible (text);
+            setSize (440, 220);
+        }
+
+        void resized() override { text.setBounds (getLocalBounds().reduced (8)); }
+
+    private:
+        juce::TextEditor text;
+    };
+
+    void launchDialog (const juce::String& title, juce::Component* content)
+    {
+        juce::DialogWindow::LaunchOptions options;
+        options.dialogTitle = title;
+        options.dialogBackgroundColour = colours::windowBackground;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        options.content.setOwned (content);
+        options.launchAsync();
+    }
 }
 
 //==============================================================================
 MainComponent::MainComponent()
-    : deviceSelector (engineController.audioDeviceManager(),
-                      0, 2, 0, 2,
-                      false, false, true, false)
 {
-    playButton.onClick        = [this] { engineController.play(); updateTransportButtons(); };
-    stopButton.onClick        = [this] { engineController.stop(); updateTransportButtons(); };
-    loopButton.onClick        = [this] { engineController.setLooping (loopButton.getToggleState()); };
-    tapTempoButton.onClick    = [this] { showTapTempo(); };
-    addTrackButton.onClick    = [this] { addTrack(); };
-    importAudioButton.onClick = [this] { importAudio(); };
-    removeTrackButton.onClick = [this] { removeLastTrack(); };
-    undoButton.onClick        = [this] { performUndo(); };
-    redoButton.onClick        = [this] { performRedo(); };
-    shortcutsButton.onClick   = [this] { showShortcuts(); };
-
-    metronomeButton.onClick = [this]
+    // ---- transport row ------------------------------------------------------
+    transportBar.onPlayStop = [this]
     {
-        engineController.setMetronomeEnabled (metronomeButton.getToggleState());
-        setStatus (metronomeButton.getToggleState() ? "Metronome enabled." : "Metronome disabled.");
+        engineController.togglePlayStop();
+        updateTransportButtons();
+        setStatus (engineController.isPlaying() ? "Playing." : "Stopped.");
+    };
+    transportBar.onStop = [this]
+    {
+        engineController.stop();
+        updateTransportButtons();
+        setStatus ("Stopped.");
+    };
+    transportBar.onToggleSongMode = [this]
+    {
+        setStatus ("Pattern mode arrives with the step sequencer in Phase 10.");
+        transportBar.setSongMode (true);
+    };
+    transportBar.onTempoChanged = [this] (double bpm)
+    {
+        if (transportBar.isTempoBeingDragged())
+        {
+            engineController.setTempo (bpm);
+            playlist.timeline().setMusicalGrid (bpm, session.timeSignatureNumerator(),
+                                                session.timeSignatureDenominator());
+        }
+        else
+        {
+            commitTempo (bpm);
+        }
+    };
+    transportBar.onTempoDragEnded = [this] { commitTempo (transportBar.tempo()); };
+    transportBar.onTimeSignatureChanged = [this] (int numerator, int denominator)
+    {
+        commitTimeSignature (numerator, denominator);
     };
 
-    timeline.onSeek = [this] (double seconds)
+    // ---- tool row -----------------------------------------------------------
+    toolBar.onAddTrack       = [this] { addTrack(); };
+    toolBar.onImport         = [this] { importAudio(); };
+    toolBar.onRemoveTrack    = [this] { removeLastTrack(); };
+    toolBar.onUndo           = [this] { performUndo(); };
+    toolBar.onRedo           = [this] { performRedo(); };
+    toolBar.onTapTempo       = [this] { showTapTempo(); };
+    toolBar.onShowShortcuts  = [this] { showShortcuts(); };
+    toolBar.onLoopChanged    = [this] (bool shouldLoop)
+    {
+        engineController.setLooping (shouldLoop);
+        setStatus (shouldLoop ? "Looping enabled." : "Looping disabled.");
+    };
+    toolBar.onMetronomeChanged = [this] (bool enabled)
+    {
+        engineController.setMetronomeEnabled (enabled);
+        setStatus (enabled ? "Metronome enabled." : "Metronome disabled.");
+    };
+
+    // ---- playlist -----------------------------------------------------------
+    playlist.timeline().onSeek = [this] (double seconds)
     {
         engineController.seek (seconds);
         setStatus ("Moved playhead to " + juce::String (seconds, 2) + " s");
     };
-
-    tempoSlider.setRange (20.0, 400.0, 1.0);
-    tempoSlider.setValue (session.tempo(), juce::dontSendNotification);
-    tempoSlider.setTextValueSuffix (" BPM");
-    tempoSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 70, 24);
-
-    // Dragging updates the engine live but commits one undoable step at the
-    // end, so a single gesture is one Ctrl+Z rather than a hundred.
-    tempoSlider.onDragStart = [this] { tempoSliderIsDragging = true; };
-    tempoSlider.onDragEnd = [this]
+    playlist.timeline().onTrackSelected = [this] (int index)
     {
-        tempoSliderIsDragging = false;
-        commitTempo (tempoSlider.getValue());
+        if (index < 0)
+        {
+            playlist.setBreadcrumb ("Arrangement", selectedClipName);
+            return;
+        }
+
+        const auto name = session.tracks().getChild (index).getProperty ("name").toString();
+        toolBar.setContext ("Track", name);
+        playlist.setBreadcrumb ("Arrangement", name);
     };
-    tempoSlider.onValueChange = [this]
+    playlist.browser().onClipSelected = [this] (const juce::String& name)
     {
-        if (tempoSliderIsDragging)
-        {
-            engineController.setTempo (tempoSlider.getValue());
-            timeline.setMusicalGrid (tempoSlider.getValue(), numeratorBox.getSelectedId(),
-                                     denominatorBox.getSelectedId());
-        }
-        else
-        {
-            commitTempo (tempoSlider.getValue());
-        }
+        selectedClipName = name;
+        toolBar.setContext ("Clip", name.isEmpty() ? "(none)" : name);
+        playlist.setBreadcrumb ("Arrangement", name);
     };
 
-    for (int value = 1; value <= 16; ++value)
-        numeratorBox.addItem (juce::String (value), value);
-    for (auto value : { 1, 2, 4, 8, 16, 32 })
-        denominatorBox.addItem (juce::String (value), value);
-    numeratorBox.setSelectedId (session.timeSignatureNumerator(), juce::dontSendNotification);
-    denominatorBox.setSelectedId (session.timeSignatureDenominator(), juce::dontSendNotification);
-    numeratorBox.onChange = [this] { commitTimeSignature(); };
-    denominatorBox.onChange = [this] { commitTimeSignature(); };
-
-    tempoLabel.setText ("Tempo BPM", juce::dontSendNotification);
-    timeSignatureLabel.setText ("Time signature", juce::dontSendNotification);
-    positionLabel.setJustificationType (juce::Justification::centredLeft);
-    trackSummaryLabel.setJustificationType (juce::Justification::centredLeft);
-    actionStatusLabel.setJustificationType (juce::Justification::centredLeft);
-    actionStatusLabel.setColour (juce::Label::textColourId, juce::Colour (0xffaeb4c3));
-    realtimeStatusLabel.setJustificationType (juce::Justification::centredRight);
-    realtimeStatusLabel.setColour (juce::Label::textColourId, juce::Colour (0xff858b99));
-    setStatus ("Add a track to begin. Space plays, Enter returns to the start, Ctrl+Z undoes.");
-
-    for (auto* component : std::initializer_list<juce::Component*>
-         { &playButton, &stopButton, &loopButton, &metronomeButton, &tapTempoButton,
-           &addTrackButton, &importAudioButton, &removeTrackButton,
-           &undoButton, &redoButton, &shortcutsButton,
-           &tempoSlider, &numeratorBox, &denominatorBox, &tempoLabel,
-           &timeSignatureLabel, &positionLabel, &trackSummaryLabel, &actionStatusLabel,
-           &realtimeStatusLabel, &timeline, &deviceSelector })
-        addAndMakeVisible (component);
-
-    // Buttons must never hold keyboard focus, or Space and Enter would activate
-    // whichever one was clicked last instead of driving the transport.
-    for (auto* button : std::initializer_list<juce::Button*>
-         { &playButton, &stopButton, &loopButton, &metronomeButton, &tapTempoButton,
-           &addTrackButton, &importAudioButton, &removeTrackButton,
-           &undoButton, &redoButton, &shortcutsButton })
-        button->setWantsKeyboardFocus (false);
-
+    // ---- menus and commands -------------------------------------------------
+    setLookAndFeel (&chromeLookAndFeel);
     commandManager.registerAllCommandsForTarget (this);
     addKeyListener (commandManager.getKeyMappings());
+    setApplicationCommandManagerToWatch (&commandManager);
+    menuBar.setModel (this);
+
+    addAndMakeVisible (menuBar);
+    addAndMakeVisible (transportBar);
+    addAndMakeVisible (toolBar);
+    addAndMakeVisible (playlist);
+
     setWantsKeyboardFocus (true);
 
-    timeline.setLength (timelineLengthSeconds);
+    playlist.timeline().setLength (timelineLengthSeconds);
     applySessionToUi();
+    setStatus ("Add a track to begin. Space plays, Enter returns to the start, Ctrl+Z undoes.");
     startTimerHz (30);
 
-    // Wide enough for the transport row's left and right groups not to collide;
-    // resized() lays both out from the edges and cannot reflow.
-    setSize (1024, 720);
+    // Wide enough for the transport and tool rows to lay out without their left
+    // and right groups colliding; Main.cpp clamps this to the display.
+    setSize (1280, 800);
 }
 
 MainComponent::~MainComponent()
 {
     stopTimer();
+    setApplicationCommandManagerToWatch (nullptr);
+    menuBar.setModel (nullptr);
+    setLookAndFeel (nullptr);
     analysisPool.removeAllJobs (true, 5000);
 }
 
 //==============================================================================
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff181a20));
+    g.fillAll (colours::windowBackground);
+
+    // Backing for the menu bar's band, which the menu itself does not fill.
+    g.setColour (colours::chromeBackground);
+    g.fillRect (getLocalBounds().withWidth (layout::menuBarWidth)
+                    .withHeight (layout::transportRowHeight));
 }
 
 void MainComponent::mouseDown (const juce::MouseEvent&)
 {
-    // Clicking the background takes focus back from the tempo box or a device
-    // combo so the transport keys work again.
+    // Clicking the background takes focus back from the tempo field or a combo
+    // box so the transport keys work again.
     grabKeyboardFocus();
 }
 
@@ -211,80 +264,64 @@ void MainComponent::ensureKeyboardFocus()
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced (12);
+    auto area = getLocalBounds();
 
-    // Two rows: transport and track operations on the first, musical settings
-    // and history on the second. Everything is laid out from both edges, so the
-    // two halves of a row must not exceed its width - see the width guard on
-    // the default window size in the constructor.
-    auto transport = area.removeFromTop (34);
-    playButton.setBounds (transport.removeFromLeft (72).reduced (2));
-    stopButton.setBounds (transport.removeFromLeft (72).reduced (2));
-    loopButton.setBounds (transport.removeFromLeft (66).reduced (2));
-    metronomeButton.setBounds (transport.removeFromLeft (102).reduced (2));
-    tapTempoButton.setBounds (transport.removeFromLeft (92).reduced (2));
-    positionLabel.setBounds (transport.removeFromLeft (96).reduced (4, 2));
-    addTrackButton.setBounds (transport.removeFromRight (130).reduced (2));
-    importAudioButton.setBounds (transport.removeFromRight (116).reduced (2));
-    removeTrackButton.setBounds (transport.removeFromRight (130).reduced (2));
+    auto topRow = area.removeFromTop (layout::transportRowHeight);
+    menuBar.setBounds (topRow.removeFromLeft (layout::menuBarWidth).withHeight (26));
+    transportBar.setBounds (topRow);
 
-    auto settings = area.removeFromTop (34);
-    tempoLabel.setBounds (settings.removeFromLeft (66));
-    tempoSlider.setBounds (settings.removeFromLeft (190).reduced (2));
-    settings.removeFromLeft (12);
-    timeSignatureLabel.setBounds (settings.removeFromLeft (94));
-    numeratorBox.setBounds (settings.removeFromLeft (58).reduced (2));
-    denominatorBox.setBounds (settings.removeFromLeft (58).reduced (2));
-    shortcutsButton.setBounds (settings.removeFromRight (55).reduced (2));
-    redoButton.setBounds (settings.removeFromRight (60).reduced (2));
-    undoButton.setBounds (settings.removeFromRight (60).reduced (2));
-    trackSummaryLabel.setBounds (settings.reduced (8, 2));
-
-    auto status = area.removeFromTop (30);
-    realtimeStatusLabel.setBounds (status.removeFromRight (270).reduced (4, 2));
-    actionStatusLabel.setBounds (status.reduced (4, 2));
-
-    timeline.setBounds (area.removeFromTop (272));
-    area.removeFromTop (8);
-    deviceSelector.setBounds (area);
+    toolBar.setBounds (area.removeFromTop (layout::toolRowHeight));
+    playlist.setBounds (area.reduced (6, 6));
 }
 
+//==============================================================================
 void MainComponent::timerCallback()
 {
     ensureKeyboardFocus();
 
     const auto seconds = engineController.positionSeconds();
-    timeline.setPosition (seconds);
-    positionLabel.setText (juce::String (seconds, 3) + " s", juce::dontSendNotification);
+    playlist.timeline().setPosition (seconds);
+
+    const auto beatSeconds = (60.0 / juce::jmax (1.0, session.tempo()))
+                           * (4.0 / juce::jmax (1, session.timeSignatureDenominator()));
+    const auto barSeconds = beatSeconds * juce::jmax (1, session.timeSignatureNumerator());
+    const auto bar = static_cast<int> (seconds / barSeconds);
+    const auto beatInBar = static_cast<int> (std::fmod (seconds, barSeconds) / beatSeconds);
+    const auto tick = static_cast<int> (std::fmod (seconds, beatSeconds) / beatSeconds * 100.0);
+
+    transportBar.setPosition (seconds, bar + 1, beatInBar + 1, tick);
+    playlist.setMusicalReadout (session.tempo(), session.timeSignatureNumerator(),
+                                session.timeSignatureDenominator(), bar + 1);
+    playlist.refreshReadouts();
     updateTransportButtons();
+
+    transportBar.setAudioLoad (engineController.audioDeviceManager().getCpuUsage());
 
     const auto realtime = engineController.realtimeReport();
     if (! realtime.available)
-        realtimeStatusLabel.setText ("RT check: release build", juce::dontSendNotification);
+        toolBar.setNotification ("RT check: release build", false);
     else if (realtime.allocations == 0)
-        realtimeStatusLabel.setText (realtime.armed ? "RT check: clean" : "RT check: warming up",
-                                     juce::dontSendNotification);
+        toolBar.setNotification (realtime.armed ? "RT check: clean" : "RT check: warming up", false);
     else
-        realtimeStatusLabel.setText ("RT ALLOCATIONS: " + juce::String (realtime.allocations)
-                                         + " (max " + juce::String (static_cast<int> (
-                                               realtime.largestAllocationBytes)) + " B)",
-                                     juce::dontSendNotification);
+        toolBar.setNotification ("RT allocations: " + juce::String (realtime.allocations)
+                                     + " (max " + juce::String (static_cast<int> (
+                                           realtime.largestAllocationBytes)) + " B)",
+                                 true);
 }
 
 void MainComponent::updateTransportButtons()
 {
-    const auto playing = engineController.isPlaying();
-    playButton.setEnabled (! playing);
-    stopButton.setEnabled (playing || engineController.positionSeconds() > 0.0);
-    loopButton.setToggleState (engineController.isLooping(), juce::dontSendNotification);
-    metronomeButton.setToggleState (engineController.isMetronomeEnabled(),
-                                    juce::dontSendNotification);
+    transportBar.setPlaying (engineController.isPlaying());
+    transportBar.setSongMode (true);
+    toolBar.setLoop (engineController.isLooping());
+    toolBar.setMetronome (engineController.isMetronomeEnabled());
+    toolBar.setHistoryEnabled (commands.canUndo(), commands.canRedo());
     commandManager.commandStatusChanged();
 }
 
 void MainComponent::setStatus (const juce::String& message)
 {
-    actionStatusLabel.setText (message, juce::dontSendNotification);
+    toolBar.setStatus (message);
 }
 
 //==============================================================================
@@ -366,8 +403,6 @@ void MainComponent::importAudio()
         if (clip.isValid())
             clip.setProperty ("length", duration, &session.undoManager());
 
-        timelineLengthSeconds = juce::jmax (60.0, engineController.contentLengthSeconds());
-        timeline.setLength (timelineLengthSeconds);
         refreshTrackSummary();
         setStatus ("Imported " + file.getFileName() + "; detecting tempo...");
 
@@ -408,13 +443,7 @@ void MainComponent::importAudio()
 
 void MainComponent::showTapTempo()
 {
-    juce::DialogWindow::LaunchOptions options;
-    options.dialogTitle = "Tap Tempo";
-    options.dialogBackgroundColour = juce::Colour (0xff181a20);
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    options.content.setOwned (new TapTempoComponent (
+    launchDialog ("Tap Tempo", new TapTempoComponent (
         [safeThis = juce::Component::SafePointer<MainComponent> (this)] (double bpm)
         {
             if (safeThis == nullptr)
@@ -429,20 +458,24 @@ void MainComponent::showTapTempo()
                                  + " BPM. Song and playhead unchanged.");
             safeThis->grabKeyboardFocus();
         }));
-
-    options.launchAsync();
 }
 
 void MainComponent::showShortcuts()
 {
-    juce::DialogWindow::LaunchOptions options;
-    options.dialogTitle = "Keyboard Shortcuts";
-    options.dialogBackgroundColour = juce::Colour (0xff181a20);
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    options.content.setOwned (new ShortcutListComponent (commandManager));
-    options.launchAsync();
+    launchDialog ("Keyboard Shortcuts", new ShortcutListComponent (commandManager));
+}
+
+void MainComponent::showAudioSettingsDialog()
+{
+    auto* selector = new juce::AudioDeviceSelectorComponent (
+        engineController.audioDeviceManager(), 0, 2, 0, 2, false, false, true, false);
+    selector->setSize (580, 420);
+    launchDialog ("Audio Settings", selector);
+}
+
+void MainComponent::showAboutDialog()
+{
+    launchDialog ("About SaamVeda Studio", new AboutComponent());
 }
 
 //==============================================================================
@@ -485,9 +518,9 @@ void MainComponent::commitTempo (double bpm)
     setStatus ("Tempo changed to " + juce::String (session.tempo(), 0) + " BPM.");
 }
 
-void MainComponent::commitTimeSignature()
+void MainComponent::commitTimeSignature (int numerator, int denominator)
 {
-    SetTimeSignatureCommand command (numeratorBox.getSelectedId(), denominatorBox.getSelectedId());
+    SetTimeSignatureCommand command (numerator, denominator);
     if (! commands.dispatch (command))
         return;
 
@@ -512,25 +545,119 @@ void MainComponent::startLoopPlay()
 //==============================================================================
 void MainComponent::applySessionToUi()
 {
-    tempoSlider.setValue (session.tempo(), juce::dontSendNotification);
-    numeratorBox.setSelectedId (session.timeSignatureNumerator(), juce::dontSendNotification);
-    denominatorBox.setSelectedId (session.timeSignatureDenominator(), juce::dontSendNotification);
-    timeline.setMusicalGrid (session.tempo(), session.timeSignatureNumerator(),
-                             session.timeSignatureDenominator());
+    transportBar.setTempo (session.tempo());
+    transportBar.setTimeSignature (session.timeSignatureNumerator(),
+                                   session.timeSignatureDenominator());
+    playlist.timeline().setMusicalGrid (session.tempo(), session.timeSignatureNumerator(),
+                                        session.timeSignatureDenominator());
     refreshTrackSummary();
 }
 
 void MainComponent::refreshTrackSummary()
 {
-    timeline.setSessionTracks (session.tracks());
+    playlist.timeline().setSessionTracks (session.tracks());
+    playlist.browser().setSessionTracks (session.tracks());
+
     timelineLengthSeconds = juce::jmax (60.0, engineController.contentLengthSeconds());
-    timeline.setLength (timelineLengthSeconds);
-    trackSummaryLabel.setText (juce::String (session.tracks().getNumChildren()) + " session tracks",
-                               juce::dontSendNotification);
-    undoButton.setEnabled (commands.canUndo());
-    redoButton.setEnabled (commands.canRedo());
+    playlist.timeline().setLength (timelineLengthSeconds);
+
+    toolBar.setHistoryEnabled (commands.canUndo(), commands.canRedo());
     commandManager.commandStatusChanged();
     repaint();
+}
+
+//==============================================================================
+juce::StringArray MainComponent::getMenuBarNames()
+{
+    return { "FILE", "EDIT", "ADD", "VIEW", "OPTIONS", "TOOLS", "HELP" };
+}
+
+juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
+{
+    juce::PopupMenu menu;
+
+    switch (index)
+    {
+        case 0: // FILE
+            menu.addItem (newProject, "New Project", false);
+            menu.addItem (openProject, "Open Project...", false);
+            menu.addItem (saveProject, "Save Project", false);
+            menu.addSeparator();
+            menu.addCommandItem (&commandManager, CommandIDs::importAudio);
+            menu.addSeparator();
+            menu.addItem (quitApplication, "Exit");
+            break;
+
+        case 1: // EDIT
+            menu.addCommandItem (&commandManager, CommandIDs::undo);
+            menu.addCommandItem (&commandManager, CommandIDs::redo);
+            break;
+
+        case 2: // ADD
+            menu.addCommandItem (&commandManager, CommandIDs::newAudioTrack);
+            menu.addCommandItem (&commandManager, CommandIDs::importAudio);
+            menu.addSeparator();
+            menu.addCommandItem (&commandManager, CommandIDs::removeLastTrack);
+            break;
+
+        case 3: // VIEW
+            menu.addCommandItem (&commandManager, CommandIDs::zoomIn);
+            menu.addCommandItem (&commandManager, CommandIDs::zoomOut);
+            menu.addCommandItem (&commandManager, CommandIDs::zoomNormal);
+            menu.addCommandItem (&commandManager, CommandIDs::zoomToFit);
+            menu.addSeparator();
+            menu.addCommandItem (&commandManager, CommandIDs::toggleFollowPlayhead);
+            break;
+
+        case 4: // OPTIONS
+            menu.addItem (showAudioSettings, "Audio Settings...");
+            menu.addSeparator();
+            menu.addCommandItem (&commandManager, CommandIDs::toggleMetronome);
+            menu.addCommandItem (&commandManager, CommandIDs::toggleLoop);
+            break;
+
+        case 5: // TOOLS
+            menu.addCommandItem (&commandManager, CommandIDs::showTapTempo);
+            break;
+
+        case 6: // HELP
+            menu.addCommandItem (&commandManager, CommandIDs::showShortcuts);
+            menu.addSeparator();
+            menu.addItem (showAbout, "About SaamVeda Studio");
+            break;
+
+        default:
+            break;
+    }
+
+    return menu;
+}
+
+void MainComponent::menuItemSelected (int menuItemID, int)
+{
+    switch (menuItemID)
+    {
+        case newProject:
+        case openProject:
+        case saveProject:
+            setStatus ("Project save and load arrive in Phase 12.");
+            break;
+
+        case quitApplication:
+            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            break;
+
+        case showAudioSettings:
+            showAudioSettingsDialog();
+            break;
+
+        case showAbout:
+            showAboutDialog();
+            break;
+
+        default:
+            break;
+    }
 }
 
 //==============================================================================
@@ -545,7 +672,7 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& target)
         CommandIDs::newAudioTrack, CommandIDs::importAudio, CommandIDs::removeLastTrack,
         CommandIDs::zoomIn, CommandIDs::zoomOut, CommandIDs::zoomNormal, CommandIDs::zoomToFit,
         CommandIDs::toggleFollowPlayhead,
-        CommandIDs::showTapTempo });
+        CommandIDs::showTapTempo, CommandIDs::showShortcuts });
 }
 
 void MainComponent::getCommandInfo (juce::CommandID commandID, juce::ApplicationCommandInfo& result)
@@ -684,13 +811,19 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
             result.setInfo ("Follow Playhead", "Scroll the view to keep the playhead visible",
                             CommandCategories::view, 0);
             result.addDefaultKeypress ('f', Mods::ctrlModifier | Mods::shiftModifier);
-            result.setTicked (timeline.isFollowingPlayhead());
+            result.setTicked (playlist.timeline().isFollowingPlayhead());
             break;
 
         case CommandIDs::showTapTempo:
             result.setInfo ("Tap Tempo...", "Open the tap tempo panel",
                             CommandCategories::tools, 0);
             result.addDefaultKeypress ('t', Mods::noModifiers);
+            break;
+
+        case CommandIDs::showShortcuts:
+            result.setInfo ("Keyboard Shortcuts...", "List every command and its keys",
+                            CommandCategories::tools, 0);
+            result.addDefaultKeypress (KeyPress::F1Key, Mods::noModifiers);
             break;
 
         default:
@@ -700,6 +833,8 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
 
 bool MainComponent::perform (const InvocationInfo& info)
 {
+    auto& timeline = playlist.timeline();
+
     switch (info.commandID)
     {
         case CommandIDs::playStop:
@@ -755,8 +890,8 @@ bool MainComponent::perform (const InvocationInfo& info)
         case CommandIDs::undo:              performUndo(); break;
         case CommandIDs::redo:              performRedo(); break;
 
-        case CommandIDs::newAudioTrack:     addTrack();       break;
-        case CommandIDs::importAudio:       importAudio();    break;
+        case CommandIDs::newAudioTrack:     addTrack();        break;
+        case CommandIDs::importAudio:       importAudio();     break;
         case CommandIDs::removeLastTrack:   removeLastTrack(); break;
 
         case CommandIDs::zoomIn:
@@ -786,7 +921,8 @@ bool MainComponent::perform (const InvocationInfo& info)
                                                       : "Playhead following off.");
             break;
 
-        case CommandIDs::showTapTempo:      showTapTempo(); break;
+        case CommandIDs::showTapTempo:      showTapTempo();  break;
+        case CommandIDs::showShortcuts:     showShortcuts(); break;
 
         default:
             return false;

@@ -5,15 +5,25 @@
 #include "../app/CommandBus.h"
 #include "../app/CommandIDs.h"
 #include "../engine/EngineController.h"
-#include "TimelineComponent.h"
+#include "Layout.h"
+#include "PlaylistPanel.h"
 #include "TapTempoComponent.h"
+#include "Toolbars.h"
 #include "../services/TempoDetector.h"
 
 namespace saamveda::ui
 {
 
+/** Application shell.
+
+    Owns the session, the engine, and the command layer, and arranges the four
+    bands of the window: menu bar and transport, tool row, and the Playlist
+    panel. Audio device setup lives in a dialog off the Options menu rather than
+    in the main view - it is a setup step, not a working surface.
+*/
 class MainComponent : public juce::Component,
                       public juce::ApplicationCommandTarget,
+                      public juce::MenuBarModel,
                       private juce::Timer
 {
 public:
@@ -33,7 +43,24 @@ public:
     void getCommandInfo (juce::CommandID, juce::ApplicationCommandInfo&) override;
     bool perform (const InvocationInfo&) override;
 
+    // MenuBarModel
+    juce::StringArray getMenuBarNames() override;
+    juce::PopupMenu getMenuForIndex (int index, const juce::String& name) override;
+    void menuItemSelected (int menuItemID, int topLevelMenuIndex) override;
+
 private:
+    /** Menu entries that are not application commands. Kept well below the
+        CommandIDs range so the two can never collide in a PopupMenu. */
+    enum MenuItemIDs
+    {
+        newProject = 1,
+        openProject,
+        saveProject,
+        quitApplication,
+        showAudioSettings,
+        showAbout
+    };
+
     void timerCallback() override;
 
     // Actions
@@ -42,10 +69,12 @@ private:
     void importAudio();
     void showTapTempo();
     void showShortcuts();
+    void showAudioSettingsDialog();
+    void showAboutDialog();
     void performUndo();
     void performRedo();
     void commitTempo (double bpm);
-    void commitTimeSignature();
+    void commitTimeSignature (int numerator, int denominator);
     void startLoopPlay();
 
     // View sync
@@ -60,25 +89,16 @@ private:
     engine::EngineController engineController;
     juce::ApplicationCommandManager commandManager;
 
-    juce::AudioDeviceSelectorComponent deviceSelector;
-    TimelineComponent timeline;
-    juce::TextButton playButton { "Play" };
-    juce::TextButton stopButton { "Stop" };
-    juce::ToggleButton loopButton { "Loop" }, metronomeButton { "Metronome" };
-    juce::TextButton tapTempoButton { "Tap Tempo" };
-    juce::TextButton addTrackButton { "Add Audio Track" };
-    juce::TextButton importAudioButton { "Import Audio..." };
-    juce::TextButton removeTrackButton { "Remove Last Track" };
-    juce::TextButton undoButton { "Undo" };
-    juce::TextButton redoButton { "Redo" };
-    juce::TextButton shortcutsButton { "Keys" };
-    juce::Slider tempoSlider;
-    juce::ComboBox numeratorBox, denominatorBox;
-    juce::Label tempoLabel, timeSignatureLabel, positionLabel, trackSummaryLabel,
-                actionStatusLabel, realtimeStatusLabel;
+    // Declared before the widgets it styles: a LookAndFeel must outlive every
+    // component pointing at it.
+    ChromeLookAndFeel chromeLookAndFeel;
+    juce::MenuBarComponent menuBar { this };
+    TransportBar transportBar;
+    ToolBar toolBar;
+    PlaylistPanel playlist;
 
     double timelineLengthSeconds = 60.0;
-    bool tempoSliderIsDragging = false;
+    juce::String selectedClipName;
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::ThreadPool analysisPool { 1 };
 

@@ -2,11 +2,19 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "Layout.h"
+
 namespace saamveda::ui
 {
 
-/** Arrangement timeline: fixed track headers on the left, a zoomable and
-    scrollable lane area on the right.
+/** The arrangement grid: track headers, ruler, and the clip lanes.
+
+    Laid out as four regions that share one scroll state, so the headers can
+    never drift out of step with the lanes they label:
+
+        corner  | ruler
+        headers | lanes            + vertical scrollbar
+                | horizontal scrollbar
 
     The grid is derived from the project tempo and time signature rather than
     drawn at a fixed spacing, so bar lines land where the metronome clicks.
@@ -19,6 +27,7 @@ public:
     TimelineComponent();
 
     std::function<void (double)> onSeek;
+    std::function<void (int)> onTrackSelected;
 
     void setLength (double seconds);
     void setPosition (double seconds);
@@ -33,6 +42,7 @@ public:
     bool isFollowingPlayhead() const noexcept { return followPlayhead; }
 
     double visibleSpanSeconds() const noexcept { return visibleSeconds; }
+    int selectedTrack() const noexcept { return selectedTrackIndex; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -41,34 +51,47 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
-    static constexpr int headerWidth = 132;
-    static constexpr int rulerHeight = 28;
-    static constexpr int scrollBarHeight = 12;
-    static constexpr int laneHeight = 46;
     static constexpr double minimumVisibleSeconds = 0.25;
+    static constexpr int clipTitleHeight = 15;
 
     void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;
     void seekFromX (int x);
     void zoomAround (double factor, double anchorSeconds);
     void setViewStart (double seconds);
-    void updateScrollBar();
+    void setVerticalOffset (double pixels);
+    void updateScrollBars();
     void followPlayheadIfNeeded();
 
+    juce::Rectangle<int> rulerArea() const;
+    juce::Rectangle<int> headerArea() const;
     juce::Rectangle<int> laneArea() const;
+    juce::Rectangle<int> rowBounds (int trackIndex, juce::Rectangle<int> column) const;
+    int rowCount() const;
+    int contentHeight() const;
+
     double timeToX (double seconds) const;
     double xToTime (double x) const;
+
+    void paintRuler (juce::Graphics&);
+    void paintHeaders (juce::Graphics&);
+    void paintLanes (juce::Graphics&);
+    void paintClip (juce::Graphics&, const juce::ValueTree& clip, juce::Rectangle<int> row);
+    void paintPlayhead (juce::Graphics&);
 
     double lengthSeconds = 60.0;
     double positionSeconds = 0.0;
     double viewStartSeconds = 0.0;
     double visibleSeconds = 60.0;
+    double verticalOffset = 0.0;
     double tempoBpm = 120.0;
     int timeSigNumerator = 4;
     int timeSigDenominator = 4;
+    int selectedTrackIndex = -1;
     bool followPlayhead = true;
 
     juce::ValueTree tracks;
     juce::ScrollBar horizontalScrollBar { false };
+    juce::ScrollBar verticalScrollBar { true };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TimelineComponent)
 };

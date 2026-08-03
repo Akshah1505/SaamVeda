@@ -15,7 +15,8 @@ The application builds and runs. It opens an audio device, plays audio, imports 
 detects their tempo, and drives a zoomable timeline with a synchronised playhead. Session state
 lives in a `ValueTree` behind a command bus, so every structural edit — tracks, clips, tempo, time
 signature — is undoable. Keyboard control follows Audacity
-([document 15](docs/15-keyboard-shortcuts.md)).
+([document 15](docs/15-keyboard-shortcuts.md)); the window follows FL Studio's arrangement
+([document 16](docs/16-ui-layout.md)).
 
 Not yet built: recording, waveform display, clip editing, plugin hosting, piano roll, mixing,
 save/load, export. Those are Phases 3–12.
@@ -39,6 +40,7 @@ save/load, export. Those are Phases 3–12.
 | 13 | [Synopsis](docs/13-synopsis.md) | College submission abstract |
 | 14 | [Diagrams](docs/14-diagrams.md) | Use-case, DFD, class, sequence (Mermaid) |
 | 15 | [Keyboard Shortcuts](docs/15-keyboard-shortcuts.md) | Audacity-compatible key map |
+| 16 | [UI Layout](docs/16-ui-layout.md) | Window structure and reserved regions |
 
 ## Quick facts
 

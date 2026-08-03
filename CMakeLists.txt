@@ -36,9 +36,12 @@ target_sources(SaamVedaStudio PRIVATE
     src/engine/EngineController.cpp
     src/engine/RealtimeSanityCheck.cpp
     src/services/TempoDetector.cpp
+    src/ui/ClipBrowser.cpp
     src/ui/MainComponent.cpp
+    src/ui/PlaylistPanel.cpp
     src/ui/TapTempoComponent.cpp
-    src/ui/TimelineComponent.cpp)
+    src/ui/TimelineComponent.cpp
+    src/ui/Toolbars.cpp)
 
 target_include_directories(SaamVedaStudio PRIVATE src)
 

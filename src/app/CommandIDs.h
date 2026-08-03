@@ -46,7 +46,8 @@ namespace CommandIDs
         toggleFollowPlayhead,
 
         // Tools
-        showTapTempo
+        showTapTempo,
+        showShortcuts
     };
 }
 
