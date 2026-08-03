@@ -9,11 +9,7 @@ MainComponent::MainComponent()
                       false, false, true, false)
 {
     playButton.onClick = [this] { engineController.play(); };
-    stopButton.onClick = [this]
-    {
-        engineController.stop();
-        engineController.seek (0.0);
-    };
+    stopButton.onClick = [this] { engineController.stop(); };
     loopButton.onClick = [this] { engineController.setLooping (loopButton.getToggleState()); };
     metronomeButton.onClick = [this]
     {
