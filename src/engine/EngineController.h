@@ -56,6 +56,10 @@ public:
     // Structure, mirrored from the session by id
     bool ensureTrack (const juce::String& trackId);
     bool removeTrack (const juce::String& trackId);
+
+    /** Takes effect on the next audio block - no transport stop required. */
+    bool setTrackMute (const juce::String& trackId, bool muted);
+    bool isTrackMuted (const juce::String& trackId) const;
     double importAudioFile (const juce::File& file, const juce::String& trackId,
                             const juce::String& clipId, double sourceTempoBpm,
                             double offsetSeconds);

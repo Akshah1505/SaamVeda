@@ -63,6 +63,32 @@ juce::Rectangle<int> TimelineComponent::rowBounds (int trackIndex,
     return { column.getX(), y, column.getWidth(), layout::laneHeight };
 }
 
+juce::Rectangle<int> TimelineComponent::muteButtonBounds (int trackIndex) const
+{
+    const auto row = rowBounds (trackIndex, headerArea());
+
+    // The dot is 8px, but an 8px click target is a miss waiting to happen, so
+    // the button is 22px square with the dot drawn at its centre.
+    return juce::Rectangle<int> (22, 22).withCentre ({ row.getRight() - 14, row.getCentreY() });
+}
+
+int TimelineComponent::trackIndexAt (juce::Point<int> position) const
+{
+    const auto column = headerArea();
+    if (! column.contains (position))
+        return -1;
+
+    const auto index = static_cast<int> ((position.y - column.getY() + verticalOffset)
+                                         / layout::laneHeight);
+    return juce::isPositiveAndBelow (index, rowCount()) ? index : -1;
+}
+
+bool TimelineComponent::isTrackMuted (int trackIndex) const
+{
+    return juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren())
+        && static_cast<bool> (tracks.getChild (trackIndex).getProperty ("mute", false));
+}
+
 double TimelineComponent::timeToX (double secondsPosition) const
 {
     const auto area = laneArea();
@@ -299,17 +325,20 @@ void TimelineComponent::paintHeaders (juce::Graphics& g)
 
         const auto isRealTrack = i < tracks.getNumChildren();
         const auto isSelected = i == selectedTrackIndex;
+        const auto muted = isTrackMuted (i);
 
         g.setColour (isSelected ? colours::accent.withAlpha (0.25f)
                                 : (i % 2 == 0 ? colours::headerBackground
                                               : colours::headerAlternate));
         g.fillRect (row.reduced (0, 1));
 
+        const auto bottom = row.getBottom();
+
         // Colour tag, drawn only for tracks that exist, so empty rows read as
         // placeholders rather than as silent tracks.
         if (isRealTrack)
         {
-            g.setColour (colours::accent);
+            g.setColour (muted ? colours::accent.withAlpha (0.3f) : colours::accent);
             g.fillRect (row.removeFromLeft (4).reduced (0, 3));
         }
         else
@@ -320,18 +349,45 @@ void TimelineComponent::paintHeaders (juce::Graphics& g)
         const auto name = isRealTrack ? tracks.getChild (i).getProperty ("name").toString()
                                       : "Track " + juce::String (i + 1);
 
-        g.setColour (isRealTrack ? colours::text : colours::textDim);
+        g.setColour (! isRealTrack ? colours::textDim
+                                   : (muted ? colours::textDim : colours::text));
         g.setFont (juce::Font (juce::FontOptions (12.0f)));
-        g.drawText (name, row.reduced (8, 0).withTrimmedRight (18),
+        g.drawText (name, row.reduced (8, 0).withTrimmedRight (26),
                     juce::Justification::centredLeft, true);
 
-        // Activity LED, in the same place FL Studio puts it.
-        auto led = juce::Rectangle<int> (row.getRight() - 16, row.getCentreY() - 4, 8, 8);
-        g.setColour (isRealTrack ? colours::ledOn : colours::ledOff);
-        g.fillEllipse (led.toFloat());
+        // Mute button, in the same place FL Studio puts its track LED.
+        const auto button = muteButtonBounds (i);
+        const auto dot = juce::Rectangle<float> (10.0f, 10.0f)
+                             .withCentre (button.getCentre().toFloat());
+
+        if (isRealTrack && i == hoveredMuteTrack)
+        {
+            g.setColour (colours::textBright.withAlpha (0.12f));
+            g.fillEllipse (button.reduced (2).toFloat());
+        }
+
+        if (! isRealTrack)
+        {
+            g.setColour (colours::ledOff);
+            g.fillEllipse (dot);
+        }
+        else if (muted)
+        {
+            // Hollow ring rather than a dimmer dot: "off" has to be readable at
+            // a glance across twelve rows, and a filled-but-darker circle is not.
+            g.setColour (colours::ledOff);
+            g.fillEllipse (dot);
+            g.setColour (colours::muted);
+            g.drawEllipse (dot.reduced (0.5f), 1.6f);
+        }
+        else
+        {
+            g.setColour (colours::ledOn);
+            g.fillEllipse (dot);
+        }
 
         g.setColour (colours::outline);
-        g.drawHorizontalLine (row.getBottom() - 1, static_cast<float> (column.getX()),
+        g.drawHorizontalLine (bottom - 1, static_cast<float> (column.getX()),
                               static_cast<float> (column.getRight()));
     }
 
@@ -400,16 +456,17 @@ void TimelineComponent::paintLanes (juce::Graphics& g)
         if (row.getBottom() < lanes.getY() || row.getY() > lanes.getBottom())
             continue;
 
+        const auto muted = isTrackMuted (i);
         const auto clips = tracks.getChild (i).getChildWithName ("CLIPS");
         for (int clipIndex = 0; clipIndex < clips.getNumChildren(); ++clipIndex)
-            paintClip (g, clips.getChild (clipIndex), row);
+            paintClip (g, clips.getChild (clipIndex), row, muted);
     }
 
     g.restoreState();
 }
 
 void TimelineComponent::paintClip (juce::Graphics& g, const juce::ValueTree& clip,
-                                   juce::Rectangle<int> row)
+                                   juce::Rectangle<int> row, bool muted)
 {
     const auto start = static_cast<double> (clip.getProperty ("start"));
     const auto clipLength = juce::jmax (0.01, static_cast<double> (clip.getProperty ("length")));
@@ -424,14 +481,23 @@ void TimelineComponent::paintClip (juce::Graphics& g, const juce::ValueTree& cli
                                         juce::jmax (4, static_cast<int> (right - left)),
                                         row.getHeight() - 5);
 
-    g.setColour (colours::clipBody);
+    // A muted clip stays in place and stays readable, but must not compete for
+    // attention with the tracks that are actually sounding.
+    const auto bodyColour = muted ? colours::clipBody.withMultipliedSaturation (0.25f)
+                                                     .withMultipliedBrightness (0.7f)
+                                  : colours::clipBody;
+    const auto titleColour = muted ? colours::clipTitle.withMultipliedSaturation (0.25f)
+                                                       .withMultipliedBrightness (0.7f)
+                                   : colours::clipTitle;
+
+    g.setColour (bodyColour);
     g.fillRoundedRectangle (bounds.toFloat(), 3.0f);
 
     auto title = bounds.removeFromTop (clipTitleHeight);
-    g.setColour (colours::clipTitle);
+    g.setColour (titleColour);
     g.fillRect (title);
 
-    g.setColour (colours::textBright);
+    g.setColour (muted ? colours::textDim : colours::textBright);
     g.setFont (juce::Font (juce::FontOptions (11.0f)));
     g.drawText (clip.getProperty ("name").toString(), title.reduced (6, 0),
                 juce::Justification::centredLeft, true);
@@ -476,9 +542,20 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
 
     if (headerArea().contains (event.getPosition()))
     {
-        const auto index = static_cast<int> ((event.y - headerArea().getY() + verticalOffset)
-                                             / layout::laneHeight);
-        selectedTrackIndex = index < tracks.getNumChildren() ? index : -1;
+        const auto index = trackIndexAt (event.getPosition());
+
+        // The mute button wins over selection: clicking it should silence the
+        // track, not also drag the selection around under the pointer.
+        if (juce::isPositiveAndBelow (index, tracks.getNumChildren())
+            && muteButtonBounds (index).contains (event.getPosition()))
+        {
+            if (onTrackMuteToggled)
+                onTrackMuteToggled (index);
+
+            return;
+        }
+
+        selectedTrackIndex = juce::isPositiveAndBelow (index, tracks.getNumChildren()) ? index : -1;
 
         if (onTrackSelected)
             onTrackSelected (selectedTrackIndex);
@@ -494,6 +571,32 @@ void TimelineComponent::mouseDrag (const juce::MouseEvent& event)
 {
     if (! headerArea().contains (event.getPosition()))
         seekFromX (event.x);
+}
+
+void TimelineComponent::mouseMove (const juce::MouseEvent& event)
+{
+    const auto index = trackIndexAt (event.getPosition());
+    const auto overMute = juce::isPositiveAndBelow (index, tracks.getNumChildren())
+                       && muteButtonBounds (index).contains (event.getPosition());
+    const auto hovered = overMute ? index : -1;
+
+    if (hovered == hoveredMuteTrack)
+        return;
+
+    hoveredMuteTrack = hovered;
+    setMouseCursor (overMute ? juce::MouseCursor::PointingHandCursor
+                             : juce::MouseCursor::NormalCursor);
+    repaint();
+}
+
+void TimelineComponent::mouseExit (const juce::MouseEvent&)
+{
+    if (hoveredMuteTrack < 0)
+        return;
+
+    hoveredMuteTrack = -1;
+    setMouseCursor (juce::MouseCursor::NormalCursor);
+    repaint();
 }
 
 void TimelineComponent::mouseWheelMove (const juce::MouseEvent& event,

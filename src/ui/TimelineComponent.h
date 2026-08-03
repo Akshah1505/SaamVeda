@@ -28,6 +28,7 @@ public:
 
     std::function<void (double)> onSeek;
     std::function<void (int)> onTrackSelected;
+    std::function<void (int)> onTrackMuteToggled;
 
     void setLength (double seconds);
     void setPosition (double seconds);
@@ -48,6 +49,8 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
@@ -66,6 +69,13 @@ private:
     juce::Rectangle<int> headerArea() const;
     juce::Rectangle<int> laneArea() const;
     juce::Rectangle<int> rowBounds (int trackIndex, juce::Rectangle<int> column) const;
+
+    /** Clickable mute target. Painting and hit-testing both go through this so
+        the dot and the region that responds to a click cannot drift apart. */
+    juce::Rectangle<int> muteButtonBounds (int trackIndex) const;
+
+    int trackIndexAt (juce::Point<int> position) const;
+    bool isTrackMuted (int trackIndex) const;
     int rowCount() const;
     int contentHeight() const;
 
@@ -75,7 +85,8 @@ private:
     void paintRuler (juce::Graphics&);
     void paintHeaders (juce::Graphics&);
     void paintLanes (juce::Graphics&);
-    void paintClip (juce::Graphics&, const juce::ValueTree& clip, juce::Rectangle<int> row);
+    void paintClip (juce::Graphics&, const juce::ValueTree& clip, juce::Rectangle<int> row,
+                    bool muted);
     void paintPlayhead (juce::Graphics&);
 
     double lengthSeconds = 60.0;
@@ -87,6 +98,7 @@ private:
     int timeSigNumerator = 4;
     int timeSigDenominator = 4;
     int selectedTrackIndex = -1;
+    int hoveredMuteTrack = -1;
     bool followPlayhead = true;
 
     juce::ValueTree tracks;

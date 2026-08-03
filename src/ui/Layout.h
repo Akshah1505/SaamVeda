@@ -60,6 +60,7 @@ namespace colours
     const juce::Colour playhead           { 0xffffb74d };
     const juce::Colour ledOn              { 0xff7ddc7d };
     const juce::Colour ledOff             { 0xff3c4450 };
+    const juce::Colour muted              { 0xffe0685f };
     const juce::Colour warning            { 0xffe8a15c };
 }
 

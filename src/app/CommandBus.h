@@ -80,6 +80,33 @@ private:
     juce::String idValue;
 };
 
+/** Mute is undoable like every other session edit.
+
+    Several DAWs keep mute out of the undo history on the grounds that it is a
+    listening control rather than an edit. This project keeps it in: it is a
+    property of the track in the session tree, and docs/05-architecture.md
+    section 5 is explicit that state living there inherits undo uniformly. One
+    toggle is one discrete transaction, not a drag stream, so it cannot flood
+    the history.
+*/
+class SetTrackMuteCommand final : public Command
+{
+public:
+    SetTrackMuteCommand (juce::String trackId, bool shouldMute)
+        : idValue (std::move (trackId)), muted (shouldMute) {}
+
+    bool execute (core::Session& session) override
+    {
+        return session.setTrackMute (idValue, muted);
+    }
+
+    juce::String name() const override { return muted ? "Mute Track" : "Unmute Track"; }
+
+private:
+    juce::String idValue;
+    bool muted;
+};
+
 class RenameTrackCommand final : public Command
 {
 public:

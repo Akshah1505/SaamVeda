@@ -66,6 +66,7 @@ private:
     // Actions
     void addTrack();
     void removeLastTrack();
+    void toggleTrackMute (int trackIndex);
     void importAudio();
     void showTapTempo();
     void showShortcuts();

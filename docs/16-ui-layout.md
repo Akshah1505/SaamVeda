@@ -63,6 +63,13 @@ window permanently. It is a setup step performed once, not a working surface, so
 grey with dimmed LEDs. A blank rectangle gives the user nothing to aim at; a track sheet does. Rows
 backed by a real session track get an accent tag, a live name, and a lit LED.
 
+**The track header's LED is the mute button.** It is where FL Studio puts its
+track LED, so it is where the hand goes. The dot itself is 10px, but the click target is 22px
+square — an 8px target is a miss waiting to happen. Lit green means the track sounds; a hollow red
+ring means muted, and the track name and its clips desaturate to match. Off has to be readable at a
+glance down twelve rows, which a merely dimmer dot is not. Painting and hit-testing share one
+`muteButtonBounds()` so the dot and the region that responds cannot drift apart.
+
 **The track header column scrolls with the lanes, in the same component.** Splitting them into
 sibling components means two scroll states that must be kept in sync, and they will eventually fall
 out of sync. `TimelineComponent` owns headers, ruler and lanes together for that reason.
@@ -80,7 +87,7 @@ Reserved regions, so later phases do not have to re-cut the layout:
 | Phase | Feature | Where it goes |
 |:---:|---|---|
 | 3 | Waveform thumbnails | inside the clip body, replacing the placeholder centre line |
-| 3 | Per-track gain, pan, mute, solo | track header, right of the name |
+| 3 | Per-track gain, pan, solo | track header, left of the mute button |
 | 6 | Edit tools (draw, slice, select) | playlist tool strip, left of the zoom controls |
 | 9 | Piano roll | its own panel, peer of the Playlist panel |
 | 10 | Pattern picker | second row, right of the transport |

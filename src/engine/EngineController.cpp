@@ -307,6 +307,25 @@ bool EngineController::ensureTrack (const juce::String& trackId)
     return true;
 }
 
+bool EngineController::setTrackMute (const juce::String& trackId, bool muted)
+{
+    auto* track = trackForId (trackId);
+    if (track == nullptr)
+        return false;
+
+    // Deliberately not wrapped in preservingTransport: tracktion applies this
+    // on the next block, and stopping playback to mute a track would defeat the
+    // point of a mute button.
+    track->setMute (muted);
+    return true;
+}
+
+bool EngineController::isTrackMuted (const juce::String& trackId) const
+{
+    auto* track = trackForId (trackId);
+    return track != nullptr && track->isMuted (false);
+}
+
 bool EngineController::removeTrack (const juce::String& trackId)
 {
     if (auto* track = trackForId (trackId))
@@ -379,6 +398,10 @@ void EngineController::synchronise (const core::Session& session)
         auto* engineTrack = trackForId (trackId);
         if (engineTrack == nullptr)
             continue;
+
+        // Mute is session state, so an undo that restores it has to reach the
+        // engine like tempo does.
+        engineTrack->setMute (static_cast<bool> (sessionTrack.getProperty ("mute", false)));
 
         const auto sessionClips = session.clipsOf (sessionTrack);
 

@@ -28,6 +28,9 @@ public:
     bool removeTrack (juce::String trackId);
     bool renameTrack (juce::String trackId, juce::String name);
 
+    bool setTrackMute (const juce::String& trackId, bool muted);
+    bool isTrackMuted (const juce::String& trackId) const;
+
     /** Tempo the clip's audio was recorded at.
 
         This lives per clip, not per project, because a project can hold two

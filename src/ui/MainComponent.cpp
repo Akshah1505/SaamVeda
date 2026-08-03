@@ -182,6 +182,8 @@ MainComponent::MainComponent()
         toolBar.setContext ("Track", name);
         playlist.setBreadcrumb ("Arrangement", name);
     };
+    playlist.timeline().onTrackMuteToggled = [this] (int index) { toggleTrackMute (index); };
+
     playlist.browser().onClipSelected = [this] (const juce::String& name)
     {
         selectedClipName = name;
@@ -358,6 +360,25 @@ void MainComponent::removeLastTrack()
         setStatus ("Removed " + trackName + " (Ctrl+Z to restore).");
         refreshTrackSummary();
     }
+}
+
+void MainComponent::toggleTrackMute (int trackIndex)
+{
+    const auto track = session.tracks().getChild (trackIndex);
+    if (! track.isValid())
+        return;
+
+    const auto trackId = track.getProperty (core::Session::idProperty()).toString();
+    const auto trackName = track.getProperty ("name").toString();
+    const auto shouldMute = ! session.isTrackMuted (trackId);
+
+    SetTrackMuteCommand command (trackId, shouldMute);
+    if (! commands.dispatch (command))
+        return;
+
+    engineController.setTrackMute (trackId, shouldMute);
+    setStatus ((shouldMute ? "Muted " : "Unmuted ") + trackName + ".");
+    refreshTrackSummary();
 }
 
 void MainComponent::importAudio()

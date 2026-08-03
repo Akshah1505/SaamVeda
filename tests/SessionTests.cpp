@@ -11,6 +11,7 @@ using saamveda::app::RemoveTrackCommand;
 using saamveda::app::RenameTrackCommand;
 using saamveda::app::SetTapTempoCommand;
 using saamveda::app::SetTempoCommand;
+using saamveda::app::SetTrackMuteCommand;
 using saamveda::app::SetTimeSignatureCommand;
 using saamveda::core::Session;
 
@@ -141,6 +142,54 @@ TEST_CASE ("remove track is undoable and restores position", "[core][undo]")
     REQUIRE (bus.undo());
     REQUIRE (session.tracks().getNumChildren() == 3);
     REQUIRE (session.tracks().getChild (1).getProperty ("name") == "Two");
+}
+
+TEST_CASE ("track mute toggles and is undoable", "[core][mute]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    AddTrackCommand addFirst ("audio", "One");
+    AddTrackCommand addSecond ("audio", "Two");
+    REQUIRE (bus.dispatch (addFirst));
+    REQUIRE (bus.dispatch (addSecond));
+
+    REQUIRE_FALSE (session.isTrackMuted (addFirst.id()));
+
+    SetTrackMuteCommand mute (addFirst.id(), true);
+    REQUIRE (bus.dispatch (mute));
+    REQUIRE (session.isTrackMuted (addFirst.id()));
+
+    // Muting one track must not touch its neighbour.
+    REQUIRE_FALSE (session.isTrackMuted (addSecond.id()));
+
+    REQUIRE (bus.undo());
+    REQUIRE_FALSE (session.isTrackMuted (addFirst.id()));
+
+    REQUIRE (bus.redo());
+    REQUIRE (session.isTrackMuted (addFirst.id()));
+
+    // Muting an already-muted track is not an edit, so it must not add a step.
+    SetTrackMuteCommand again (addFirst.id(), true);
+    REQUIRE_FALSE (bus.dispatch (again));
+
+    SetTrackMuteCommand unmute (addFirst.id(), false);
+    REQUIRE (bus.dispatch (unmute));
+    REQUIRE_FALSE (session.isTrackMuted (addFirst.id()));
+}
+
+TEST_CASE ("mute survives serialisation", "[core][mute][persistence]")
+{
+    Session source;
+    const auto track = source.addTrack ("audio", "Guitar");
+    const auto trackId = track.getProperty (Session::idProperty()).toString();
+    REQUIRE (source.setTrackMute (trackId, true));
+
+    auto xml = source.state().createXml();
+    REQUIRE (xml != nullptr);
+
+    Session restored (juce::ValueTree::fromXml (*xml));
+    REQUIRE (restored.isTrackMuted (trackId));
 }
 
 TEST_CASE ("tempo changes are undoable", "[core][undo][tempo]")

@@ -184,6 +184,25 @@ bool Session::renameTrack (juce::String trackId, juce::String name)
     return true;
 }
 
+bool Session::setTrackMute (const juce::String& trackId, bool muted)
+{
+    auto track = trackWithId (trackId);
+    if (! track.isValid())
+        return false;
+
+    if (static_cast<bool> (track.getProperty ("mute", false)) == muted)
+        return false;
+
+    track.setProperty ("mute", muted, &undo);
+    return true;
+}
+
+bool Session::isTrackMuted (const juce::String& trackId) const
+{
+    const auto track = trackWithId (trackId);
+    return track.isValid() && static_cast<bool> (track.getProperty ("mute", false));
+}
+
 bool Session::setTempo (double bpm)
 {
     const auto clamped = juce::jlimit (20.0, 400.0, bpm);
