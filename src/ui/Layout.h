@@ -33,6 +33,9 @@ namespace layout
     constexpr int laneHeight          = 58;
     constexpr int scrollBarThickness  = 12;
 
+    /** Combined scroll/zoom bar above the ruler, as in the reference layout. */
+    constexpr int zoomBarHeight       = 15;
+
     // The lane area always draws at least this many rows, so an empty project
     // still reads as a track sheet rather than a blank rectangle.
     constexpr int minimumVisibleTracks = 12;

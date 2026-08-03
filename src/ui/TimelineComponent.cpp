@@ -9,12 +9,19 @@ TimelineComponent::TimelineComponent()
 {
     setWantsKeyboardFocus (true);
 
-    horizontalScrollBar.setAutoHide (false);
-    horizontalScrollBar.addListener (this);
+    zoomBar.setMinimumVisible (minimumVisibleSeconds);
+    zoomBar.onRangeChanged = [this] (double start, double visible)
+    {
+        visibleSeconds = juce::jlimit (minimumVisibleSeconds, lengthSeconds, visible);
+        viewStartSeconds = juce::jlimit (0.0, juce::jmax (0.0, lengthSeconds - visibleSeconds),
+                                         start);
+        repaint();
+    };
+
     verticalScrollBar.setAutoHide (false);
     verticalScrollBar.addListener (this);
 
-    addAndMakeVisible (horizontalScrollBar);
+    addAndMakeVisible (zoomBar);
     addAndMakeVisible (verticalScrollBar);
     updateScrollBars();
 }
@@ -30,11 +37,20 @@ int TimelineComponent::contentHeight() const
     return rowCount() * layout::laneHeight;
 }
 
+juce::Rectangle<int> TimelineComponent::zoomBarArea() const
+{
+    return getLocalBounds()
+        .withTrimmedLeft (layout::trackHeaderWidth)
+        .withTrimmedRight (layout::scrollBarThickness)
+        .withHeight (layout::zoomBarHeight);
+}
+
 juce::Rectangle<int> TimelineComponent::rulerArea() const
 {
     return getLocalBounds()
         .withTrimmedLeft (layout::trackHeaderWidth)
         .withTrimmedRight (layout::scrollBarThickness)
+        .withTrimmedTop (layout::zoomBarHeight)
         .withHeight (layout::rulerHeight);
 }
 
@@ -42,17 +58,15 @@ juce::Rectangle<int> TimelineComponent::headerArea() const
 {
     return getLocalBounds()
         .withWidth (layout::trackHeaderWidth)
-        .withTrimmedTop (layout::rulerHeight)
-        .withTrimmedBottom (layout::scrollBarThickness);
+        .withTrimmedTop (layout::zoomBarHeight + layout::rulerHeight);
 }
 
 juce::Rectangle<int> TimelineComponent::laneArea() const
 {
     return getLocalBounds()
         .withTrimmedLeft (layout::trackHeaderWidth)
-        .withTrimmedTop (layout::rulerHeight)
-        .withTrimmedRight (layout::scrollBarThickness)
-        .withTrimmedBottom (layout::scrollBarThickness);
+        .withTrimmedTop (layout::zoomBarHeight + layout::rulerHeight)
+        .withTrimmedRight (layout::scrollBarThickness);
 }
 
 juce::Rectangle<int> TimelineComponent::rowBounds (int trackIndex,
@@ -198,9 +212,8 @@ void TimelineComponent::setVerticalOffset (double pixels)
 
 void TimelineComponent::updateScrollBars()
 {
-    horizontalScrollBar.setRangeLimits ({ 0.0, lengthSeconds }, juce::dontSendNotification);
-    horizontalScrollBar.setCurrentRange ({ viewStartSeconds, viewStartSeconds + visibleSeconds },
-                                         juce::dontSendNotification);
+    zoomBar.setTotalLength (lengthSeconds);
+    zoomBar.setVisibleRange (viewStartSeconds, visibleSeconds);
 
     const auto visibleHeight = juce::jmax (1, laneArea().getHeight());
     verticalScrollBar.setRangeLimits ({ 0.0, static_cast<double> (juce::jmax (contentHeight(),
@@ -224,29 +237,23 @@ void TimelineComponent::followPlayheadIfNeeded()
     setViewStart (positionSeconds - visibleSeconds * 0.1);
 }
 
-void TimelineComponent::scrollBarMoved (juce::ScrollBar* bar, double newRangeStart)
+void TimelineComponent::scrollBarMoved (juce::ScrollBar*, double newRangeStart)
 {
-    if (bar == &horizontalScrollBar)
-        viewStartSeconds = juce::jlimit (0.0, juce::jmax (0.0, lengthSeconds - visibleSeconds),
-                                         newRangeStart);
-    else
-        verticalOffset = juce::jmax (0.0, newRangeStart);
-
+    // Only the vertical bar is a JUCE ScrollBar; horizontal scrolling and
+    // zooming both come through ZoomScrollBar's callback.
+    verticalOffset = juce::jmax (0.0, newRangeStart);
     repaint();
 }
 
 //==============================================================================
 void TimelineComponent::resized()
 {
-    horizontalScrollBar.setBounds (getLocalBounds()
-                                       .removeFromBottom (layout::scrollBarThickness)
-                                       .withTrimmedLeft (layout::trackHeaderWidth)
-                                       .withTrimmedRight (layout::scrollBarThickness));
+    zoomBar.setBounds (zoomBarArea().reduced (1, 1));
 
     verticalScrollBar.setBounds (getLocalBounds()
                                      .removeFromRight (layout::scrollBarThickness)
-                                     .withTrimmedTop (layout::rulerHeight)
-                                     .withTrimmedBottom (layout::scrollBarThickness));
+                                     .withTrimmedTop (layout::zoomBarHeight
+                                                      + layout::rulerHeight));
 
     setVerticalOffset (verticalOffset);
     updateScrollBars();
@@ -257,10 +264,10 @@ void TimelineComponent::paint (juce::Graphics& g)
 {
     g.fillAll (colours::laneBackground);
 
-    // Corner block between the header column and the ruler.
+    // Corner block spanning the zoom bar's row and the ruler, left of both.
+    const auto topHeight = layout::zoomBarHeight + layout::rulerHeight;
     g.setColour (colours::panelTitle);
-    g.fillRect (getLocalBounds().withWidth (layout::trackHeaderWidth)
-                    .withHeight (layout::rulerHeight));
+    g.fillRect (getLocalBounds().withWidth (layout::trackHeaderWidth).withHeight (topHeight));
 
     paintRuler (g);
     paintHeaders (g);
@@ -269,7 +276,7 @@ void TimelineComponent::paint (juce::Graphics& g)
 
     g.setColour (colours::outline);
     g.drawVerticalLine (layout::trackHeaderWidth - 1, 0.0f, static_cast<float> (getHeight()));
-    g.drawHorizontalLine (layout::rulerHeight - 1, 0.0f, static_cast<float> (getWidth()));
+    g.drawHorizontalLine (topHeight - 1, 0.0f, static_cast<float> (getWidth()));
 }
 
 void TimelineComponent::paintRuler (juce::Graphics& g)

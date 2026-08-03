@@ -70,8 +70,13 @@ Bindings are declared next to the actions they trigger, in `MainComponent::getCo
 | Gesture | Action |
 |---|---|
 | Click or drag in the lane area | Move the playhead |
-| Wheel | Scroll the timeline horizontally |
+| Wheel | Scroll the lanes vertically |
+| `Shift`+wheel | Scroll the timeline horizontally |
 | `Ctrl`+wheel | Zoom around the pointer |
+| Click a track's LED | Mute / unmute that track |
+| Drag the middle of the top bar | Scroll |
+| Drag either end of the top bar | Zoom, anchoring the opposite end |
+| Double-click the top bar | Fit the project to the window |
 
 ## 3. Three deliberate departures from Audacity
 

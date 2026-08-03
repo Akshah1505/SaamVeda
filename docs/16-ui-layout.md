@@ -31,13 +31,13 @@ look like. Colours and control styling live in `ui/Layout.h` and are expected to
 │ Playlist  -  Arrangement  >  <selection>                                       │  title
 │ − + Fit  ☑ Follow                                     view 60.0 s   120 BPM 4/4 │  tools
 │ ┌────────────┬──────────┬──────────────────────────────────────────────────┬─┐ │
-│ │ CLIPS      │          │ 1      3      5      7      9     11     13       │ │ │  ruler
+│ │ CLIPS      │          │ ║▓▓▓▓▓▓▓▓▓▓▓▓║                                    │ │ │  zoom bar
+│ │            │          │ 1      3      5      7      9     11     13       │ │ │  ruler
 │ │            ├──────────┼──────────────────────────────────────────────────┤ │ │
 │ │ clip list  │ Audio 1 ●│ ▓▓▓▓▓▓▓▓ clip                                     │ │ │
 │ │            │ Track 2 ○│                                                   │▓│ │  lanes
 │ │            │ Track 3 ○│                                                   │ │ │
 │ └────────────┴──────────┴──────────────────────────────────────────────────┴─┘ │
-│                         └──────────────── horizontal scrollbar ──────────────┘ │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,6 +48,7 @@ look like. Colours and control styling live in `ui/Layout.h` and are expected to
 | Playlist panel | `PlaylistPanel` | [PlaylistPanel.h](../src/ui/PlaylistPanel.h) |
 | Clip browser | `ClipBrowser` | [ClipBrowser.h](../src/ui/ClipBrowser.h) |
 | Headers, ruler, lanes | `TimelineComponent` | [TimelineComponent.h](../src/ui/TimelineComponent.h) |
+| Scroll + zoom bar | `ZoomScrollBar` | [ZoomScrollBar.h](../src/ui/ZoomScrollBar.h) |
 | Metrics and colours | `layout::`, `colours::`, `ChromeLookAndFeel` | [Layout.h](../src/ui/Layout.h) |
 
 Every dimension is a named constant in `layout::`. Components read from it rather than hardcoding,
@@ -62,6 +63,16 @@ window permanently. It is a setup step performed once, not a working surface, so
 **The lane area always draws at least twelve rows.** An empty project shows `Track 1`…`Track 12` in
 grey with dimmed LEDs. A blank rectangle gives the user nothing to aim at; a track sheet does. Rows
 backed by a real session track get an accent tag, a live name, and a lit LED.
+
+**The horizontal scrollbar is above the ruler, and it is also the zoom control.**
+The thumb is the visible slice of the project: drag its middle to scroll, drag either end to
+resize the slice, which is zooming. Combining them is not a space saving — "where am I" and "how
+much am I looking at" are the same question, and answering it with two separate widgets makes the
+user reconcile them. Both ends carry grip marks and a resize cursor so the thumb reads as
+resizable rather than as a plain scrollbar. Double-click fits the project. The `−`/`+`/`Fit`
+buttons and `Ctrl+1`/`2`/`3`/`F` remain, driving the same state, so the bar always reflects the
+current view however it was changed. There is no bottom scrollbar; the vertical one stays on the
+right.
 
 **The track header's LED is the mute button.** It is where FL Studio puts its
 track LED, so it is where the hand goes. The dot itself is 10px, but the click target is 22px

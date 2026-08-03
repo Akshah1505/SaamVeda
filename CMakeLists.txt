@@ -41,7 +41,8 @@ target_sources(SaamVedaStudio PRIVATE
     src/ui/PlaylistPanel.cpp
     src/ui/TapTempoComponent.cpp
     src/ui/TimelineComponent.cpp
-    src/ui/Toolbars.cpp)
+    src/ui/Toolbars.cpp
+    src/ui/ZoomScrollBar.cpp)
 
 target_include_directories(SaamVedaStudio PRIVATE src)
 

@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "Layout.h"
+#include "ZoomScrollBar.h"
 
 namespace saamveda::ui
 {
@@ -65,6 +66,7 @@ private:
     void updateScrollBars();
     void followPlayheadIfNeeded();
 
+    juce::Rectangle<int> zoomBarArea() const;
     juce::Rectangle<int> rulerArea() const;
     juce::Rectangle<int> headerArea() const;
     juce::Rectangle<int> laneArea() const;
@@ -102,7 +104,7 @@ private:
     bool followPlayhead = true;
 
     juce::ValueTree tracks;
-    juce::ScrollBar horizontalScrollBar { false };
+    ZoomScrollBar zoomBar;
     juce::ScrollBar verticalScrollBar { true };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TimelineComponent)
