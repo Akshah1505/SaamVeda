@@ -183,6 +183,14 @@ MainComponent::MainComponent()
         playlist.setBreadcrumb ("Arrangement", name);
     };
     playlist.timeline().onTrackMuteToggled = [this] (int index) { toggleTrackMute (index); };
+    playlist.timeline().onTrackSoloToggled = [this] (int index) { toggleTrackSolo (index); };
+    playlist.timeline().onTrackRenamed = [this] (int index, juce::String name)
+    {
+        renameTrack (index, name);
+    };
+
+    playlist.timeline().setWaveformCache (&waveformCache);
+    waveformCache.addChangeListener (this);
 
     playlist.browser().onClipSelected = [this] (const juce::String& name)
     {
@@ -218,6 +226,8 @@ MainComponent::MainComponent()
 MainComponent::~MainComponent()
 {
     stopTimer();
+    waveformCache.removeChangeListener (this);
+    playlist.timeline().setWaveformCache (nullptr);
     setApplicationCommandManagerToWatch (nullptr);
     menuBar.setModel (nullptr);
     setLookAndFeel (nullptr);
@@ -379,6 +389,52 @@ void MainComponent::toggleTrackMute (int trackIndex)
     engineController.setTrackMute (trackId, shouldMute);
     setStatus ((shouldMute ? "Muted " : "Unmuted ") + trackName + ".");
     refreshTrackSummary();
+}
+
+void MainComponent::toggleTrackSolo (int trackIndex)
+{
+    const auto track = session.tracks().getChild (trackIndex);
+    if (! track.isValid())
+        return;
+
+    const auto trackId = track.getProperty (core::Session::idProperty()).toString();
+    const auto trackName = track.getProperty ("name").toString();
+    const auto shouldSolo = ! session.isTrackSoloed (trackId);
+
+    SetTrackSoloCommand command (trackId, shouldSolo);
+    if (! commands.dispatch (command))
+        return;
+
+    engineController.setTrackSolo (trackId, shouldSolo);
+    setStatus (shouldSolo ? "Soloed " + trackName + "; everything else is silent."
+                          : "Unsoloed " + trackName + ".");
+    refreshTrackSummary();
+}
+
+void MainComponent::renameTrack (int trackIndex, const juce::String& newName)
+{
+    const auto track = session.tracks().getChild (trackIndex);
+    if (! track.isValid())
+        return;
+
+    const auto trackId = track.getProperty (core::Session::idProperty()).toString();
+    const auto previous = track.getProperty ("name").toString();
+    if (previous == newName)
+        return;
+
+    RenameTrackCommand command (trackId, newName);
+    if (! commands.dispatch (command))
+        return;
+
+    setStatus ("Renamed " + previous + " to " + newName + ".");
+    refreshTrackSummary();
+}
+
+void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    // A thumbnail finished another chunk of its file; the lanes are the only
+    // thing that shows it.
+    playlist.timeline().repaint();
 }
 
 void MainComponent::importAudio()
@@ -598,6 +654,18 @@ void MainComponent::refreshTrackSummary()
 {
     playlist.timeline().setSessionTracks (session.tracks());
     playlist.browser().setSessionTracks (session.tracks());
+
+    // Release thumbnails for files no longer on the timeline, so undoing a long
+    // series of imports does not leave their scans resident.
+    juce::StringArray livePaths;
+    const auto trackList = session.tracks();
+    for (int i = 0; i < trackList.getNumChildren(); ++i)
+    {
+        const auto clips = session.clipsOf (trackList.getChild (i));
+        for (int j = 0; j < clips.getNumChildren(); ++j)
+            livePaths.addIfNotAlreadyThere (clips.getChild (j).getProperty ("sourceFile").toString());
+    }
+    waveformCache.retainOnly (livePaths);
 
     timelineLengthSeconds = juce::jmax (60.0, engineController.contentLengthSeconds());
     playlist.timeline().setLength (timelineLengthSeconds);

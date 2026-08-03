@@ -203,6 +203,36 @@ bool Session::isTrackMuted (const juce::String& trackId) const
     return track.isValid() && static_cast<bool> (track.getProperty ("mute", false));
 }
 
+bool Session::setTrackSolo (const juce::String& trackId, bool soloed)
+{
+    auto track = trackWithId (trackId);
+    if (! track.isValid())
+        return false;
+
+    if (static_cast<bool> (track.getProperty ("solo", false)) == soloed)
+        return false;
+
+    track.setProperty ("solo", soloed, &undo);
+    return true;
+}
+
+bool Session::isTrackSoloed (const juce::String& trackId) const
+{
+    const auto track = trackWithId (trackId);
+    return track.isValid() && static_cast<bool> (track.getProperty ("solo", false));
+}
+
+bool Session::hasAnySoloedTrack() const
+{
+    const auto trackList = tracks();
+
+    for (int i = 0; i < trackList.getNumChildren(); ++i)
+        if (static_cast<bool> (trackList.getChild (i).getProperty ("solo", false)))
+            return true;
+
+    return false;
+}
+
 bool Session::setTempo (double bpm)
 {
     const auto clamped = juce::jlimit (20.0, 400.0, bpm);

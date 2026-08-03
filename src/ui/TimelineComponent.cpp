@@ -21,8 +21,23 @@ TimelineComponent::TimelineComponent()
     verticalScrollBar.setAutoHide (false);
     verticalScrollBar.addListener (this);
 
+    nameEditor.setVisible (false);
+    nameEditor.setSelectAllWhenFocused (true);
+    nameEditor.setColour (juce::TextEditor::backgroundColourId, colours::windowBackground);
+    nameEditor.setColour (juce::TextEditor::textColourId, colours::textBright);
+    nameEditor.setFont (juce::Font (juce::FontOptions (12.0f)));
+    nameEditor.onReturnKey = [this] { commitRename(); };
+    nameEditor.onFocusLost = [this] { commitRename(); };
+    nameEditor.onEscapeKey = [this]
+    {
+        renamingTrackIndex = -1;
+        nameEditor.setVisible (false);
+        grabKeyboardFocus();
+    };
+
     addAndMakeVisible (zoomBar);
     addAndMakeVisible (verticalScrollBar);
+    addChildComponent (nameEditor);
     updateScrollBars();
 }
 
@@ -81,9 +96,23 @@ juce::Rectangle<int> TimelineComponent::muteButtonBounds (int trackIndex) const
 {
     const auto row = rowBounds (trackIndex, headerArea());
 
-    // The dot is 8px, but an 8px click target is a miss waiting to happen, so
+    // The dot is 10px, but a 10px click target is a miss waiting to happen, so
     // the button is 22px square with the dot drawn at its centre.
-    return juce::Rectangle<int> (22, 22).withCentre ({ row.getRight() - 14, row.getCentreY() });
+    return juce::Rectangle<int> (22, 22).withCentre ({ row.getRight() - 15, row.getCentreY() });
+}
+
+juce::Rectangle<int> TimelineComponent::soloButtonBounds (int trackIndex) const
+{
+    const auto mute = muteButtonBounds (trackIndex);
+    return juce::Rectangle<int> (20, 20).withCentre ({ mute.getX() - 12, mute.getCentreY() });
+}
+
+juce::Rectangle<int> TimelineComponent::nameBounds (int trackIndex) const
+{
+    const auto row = rowBounds (trackIndex, headerArea());
+    return row.withTrimmedLeft (10)
+              .withTrimmedRight (row.getRight() - soloButtonBounds (trackIndex).getX() + 4)
+              .reduced (0, 14);
 }
 
 int TimelineComponent::trackIndexAt (juce::Point<int> position) const
@@ -101,6 +130,42 @@ bool TimelineComponent::isTrackMuted (int trackIndex) const
 {
     return juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren())
         && static_cast<bool> (tracks.getChild (trackIndex).getProperty ("mute", false));
+}
+
+bool TimelineComponent::isTrackSoloed (int trackIndex) const
+{
+    return juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren())
+        && static_cast<bool> (tracks.getChild (trackIndex).getProperty ("solo", false));
+}
+
+void TimelineComponent::beginRename (int trackIndex)
+{
+    if (! juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren()))
+        return;
+
+    renamingTrackIndex = trackIndex;
+    nameEditor.setBounds (nameBounds (trackIndex));
+    nameEditor.setText (tracks.getChild (trackIndex).getProperty ("name").toString(), false);
+    nameEditor.setVisible (true);
+    nameEditor.grabKeyboardFocus();
+}
+
+void TimelineComponent::commitRename()
+{
+    if (renamingTrackIndex < 0)
+        return;
+
+    const auto index = renamingTrackIndex;
+    const auto text = nameEditor.getText().trim();
+
+    // Clear the state before notifying: the callback repaints, and a visible
+    // editor over a row that may have been renumbered is worse than none.
+    renamingTrackIndex = -1;
+    nameEditor.setVisible (false);
+    grabKeyboardFocus();
+
+    if (text.isNotEmpty() && onTrackRenamed)
+        onTrackRenamed (index, text);
 }
 
 double TimelineComponent::timeToX (double secondsPosition) const
@@ -152,6 +217,14 @@ void TimelineComponent::setSessionTracks (juce::ValueTree tracksToUse)
 
     if (selectedTrackIndex >= tracks.getNumChildren())
         selectedTrackIndex = -1;
+
+    // An editor left open over a row that no longer exists would rename the
+    // wrong track on commit.
+    if (renamingTrackIndex >= tracks.getNumChildren())
+    {
+        renamingTrackIndex = -1;
+        nameEditor.setVisible (false);
+    }
 
     updateScrollBars();
     repaint();
@@ -356,11 +429,29 @@ void TimelineComponent::paintHeaders (juce::Graphics& g)
         const auto name = isRealTrack ? tracks.getChild (i).getProperty ("name").toString()
                                       : "Track " + juce::String (i + 1);
 
-        g.setColour (! isRealTrack ? colours::textDim
-                                   : (muted ? colours::textDim : colours::text));
-        g.setFont (juce::Font (juce::FontOptions (12.0f)));
-        g.drawText (name, row.reduced (8, 0).withTrimmedRight (26),
-                    juce::Justification::centredLeft, true);
+        if (i != renamingTrackIndex)
+        {
+            g.setColour (! isRealTrack ? colours::textDim
+                                       : (muted ? colours::textDim : colours::text));
+            g.setFont (juce::Font (juce::FontOptions (12.0f)));
+            g.drawText (name, nameBounds (i), juce::Justification::centredLeft, true);
+        }
+
+        // Solo button, left of the mute LED.
+        if (isRealTrack)
+        {
+            const auto solo = soloButtonBounds (i).reduced (2);
+            const auto isSoloed = isTrackSoloed (i);
+
+            g.setColour (isSoloed ? colours::soloed
+                                  : (i == hoveredSoloTrack ? colours::headerAlternate.brighter (0.3f)
+                                                           : colours::ledOff));
+            g.fillRoundedRectangle (solo.toFloat(), 3.0f);
+
+            g.setColour (isSoloed ? colours::windowBackground : colours::textDim);
+            g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+            g.drawText ("S", solo, juce::Justification::centred);
+        }
 
         // Mute button, in the same place FL Studio puts its track LED.
         const auto button = muteButtonBounds (i);
@@ -518,10 +609,45 @@ void TimelineComponent::paintClip (juce::Graphics& g, const juce::ValueTree& cli
                     juce::Justification::centredRight, false);
     }
 
-    // Placeholder for the waveform thumbnail that arrives in Phase 3.
-    g.setColour (colours::textBright.withAlpha (0.25f));
-    g.drawHorizontalLine (bounds.getCentreY(), static_cast<float> (bounds.getX() + 3),
-                          static_cast<float> (bounds.getRight() - 3));
+    // ---- waveform -----------------------------------------------------------
+    const auto visible = bounds.getIntersection (laneArea());
+    if (visible.isEmpty())
+        return;
+
+    juce::AudioThumbnail* thumbnail = nullptr;
+    const auto path = clip.getProperty ("sourceFile").toString();
+
+    if (waveformCache != nullptr && path.isNotEmpty())
+        thumbnail = waveformCache->thumbnailFor (juce::File (path));
+
+    if (thumbnail == nullptr || thumbnail->getTotalLength() <= 0.0)
+    {
+        // Still scanning, or unreadable. A centre line keeps the clip looking
+        // like a clip instead of an empty box.
+        g.setColour (colours::textBright.withAlpha (0.25f));
+        g.drawHorizontalLine (bounds.getCentreY(), static_cast<float> (bounds.getX() + 3),
+                              static_cast<float> (bounds.getRight() - 3));
+        return;
+    }
+
+    // Draw only the slice that is actually on screen, at the resolution it is
+    // being shown at. Handing the whole clip to drawChannels and letting it
+    // squeeze into a small rect wastes the thumbnail's detail.
+    const auto offset = juce::jmax (0.0, static_cast<double> (clip.getProperty ("offset", 0.0)));
+    const auto sourceTempo = juce::jmax (1.0, static_cast<double> (
+        clip.getProperty ("sourceTempo", tempoBpm)));
+    const auto speedRatio = tempoBpm / sourceTempo;
+
+    const auto toSourceTime = [&] (double x)
+    {
+        return offset + (xToTime (x) - start) * speedRatio;
+    };
+
+    g.setColour (muted ? colours::waveform.withAlpha (0.35f) : colours::waveform);
+    thumbnail->drawChannels (g, visible,
+                             toSourceTime (visible.getX()),
+                             toSourceTime (visible.getRight()),
+                             0.92f);
 }
 
 void TimelineComponent::paintPlayhead (juce::Graphics& g)
@@ -551,15 +677,25 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
     {
         const auto index = trackIndexAt (event.getPosition());
 
-        // The mute button wins over selection: clicking it should silence the
-        // track, not also drag the selection around under the pointer.
-        if (juce::isPositiveAndBelow (index, tracks.getNumChildren())
-            && muteButtonBounds (index).contains (event.getPosition()))
+        // The mute and solo buttons win over selection: clicking one should do
+        // that one thing, not also drag the selection around under the pointer.
+        if (juce::isPositiveAndBelow (index, tracks.getNumChildren()))
         {
-            if (onTrackMuteToggled)
-                onTrackMuteToggled (index);
+            if (muteButtonBounds (index).contains (event.getPosition()))
+            {
+                if (onTrackMuteToggled)
+                    onTrackMuteToggled (index);
 
-            return;
+                return;
+            }
+
+            if (soloButtonBounds (index).contains (event.getPosition()))
+            {
+                if (onTrackSoloToggled)
+                    onTrackSoloToggled (index);
+
+                return;
+            }
         }
 
         selectedTrackIndex = juce::isPositiveAndBelow (index, tracks.getNumChildren()) ? index : -1;
@@ -583,27 +719,45 @@ void TimelineComponent::mouseDrag (const juce::MouseEvent& event)
 void TimelineComponent::mouseMove (const juce::MouseEvent& event)
 {
     const auto index = trackIndexAt (event.getPosition());
-    const auto overMute = juce::isPositiveAndBelow (index, tracks.getNumChildren())
-                       && muteButtonBounds (index).contains (event.getPosition());
-    const auto hovered = overMute ? index : -1;
+    const auto isReal = juce::isPositiveAndBelow (index, tracks.getNumChildren());
 
-    if (hovered == hoveredMuteTrack)
+    const auto overMute = isReal && muteButtonBounds (index).contains (event.getPosition());
+    const auto overSolo = isReal && soloButtonBounds (index).contains (event.getPosition());
+    const auto overName = isReal && nameBounds (index).contains (event.getPosition());
+
+    const auto mute = overMute ? index : -1;
+    const auto solo = overSolo ? index : -1;
+
+    if (mute == hoveredMuteTrack && solo == hoveredSoloTrack)
         return;
 
-    hoveredMuteTrack = hovered;
-    setMouseCursor (overMute ? juce::MouseCursor::PointingHandCursor
-                             : juce::MouseCursor::NormalCursor);
+    hoveredMuteTrack = mute;
+    hoveredSoloTrack = solo;
+    setMouseCursor (overMute || overSolo ? juce::MouseCursor::PointingHandCursor
+                                         : (overName ? juce::MouseCursor::IBeamCursor
+                                                     : juce::MouseCursor::NormalCursor));
     repaint();
 }
 
 void TimelineComponent::mouseExit (const juce::MouseEvent&)
 {
-    if (hoveredMuteTrack < 0)
+    if (hoveredMuteTrack < 0 && hoveredSoloTrack < 0)
         return;
 
     hoveredMuteTrack = -1;
+    hoveredSoloTrack = -1;
     setMouseCursor (juce::MouseCursor::NormalCursor);
     repaint();
+}
+
+void TimelineComponent::mouseDoubleClick (const juce::MouseEvent& event)
+{
+    const auto index = trackIndexAt (event.getPosition());
+    if (juce::isPositiveAndBelow (index, tracks.getNumChildren())
+        && nameBounds (index).contains (event.getPosition()))
+    {
+        beginRename (index);
+    }
 }
 
 void TimelineComponent::mouseWheelMove (const juce::MouseEvent& event,

@@ -30,6 +30,9 @@ public:
 
     bool setTrackMute (const juce::String& trackId, bool muted);
     bool isTrackMuted (const juce::String& trackId) const;
+    bool setTrackSolo (const juce::String& trackId, bool soloed);
+    bool isTrackSoloed (const juce::String& trackId) const;
+    bool hasAnySoloedTrack() const;
 
     /** Tempo the clip's audio was recorded at.
 

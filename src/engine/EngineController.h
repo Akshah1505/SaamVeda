@@ -57,9 +57,10 @@ public:
     bool ensureTrack (const juce::String& trackId);
     bool removeTrack (const juce::String& trackId);
 
-    /** Takes effect on the next audio block - no transport stop required. */
+    /** Take effect on the next audio block - no transport stop required. */
     bool setTrackMute (const juce::String& trackId, bool muted);
     bool isTrackMuted (const juce::String& trackId) const;
+    bool setTrackSolo (const juce::String& trackId, bool soloed);
     double importAudioFile (const juce::File& file, const juce::String& trackId,
                             const juce::String& clipId, double sourceTempoBpm,
                             double offsetSeconds);

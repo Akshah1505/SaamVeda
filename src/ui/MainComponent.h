@@ -10,6 +10,7 @@
 #include "TapTempoComponent.h"
 #include "Toolbars.h"
 #include "../services/TempoDetector.h"
+#include "../services/WaveformCache.h"
 
 namespace saamveda::ui
 {
@@ -24,7 +25,8 @@ namespace saamveda::ui
 class MainComponent : public juce::Component,
                       public juce::ApplicationCommandTarget,
                       public juce::MenuBarModel,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::ChangeListener
 {
 public:
     MainComponent();
@@ -62,11 +64,14 @@ private:
     };
 
     void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     // Actions
     void addTrack();
     void removeLastTrack();
     void toggleTrackMute (int trackIndex);
+    void toggleTrackSolo (int trackIndex);
+    void renameTrack (int trackIndex, const juce::String& newName);
     void importAudio();
     void showTapTempo();
     void showShortcuts();
@@ -88,6 +93,7 @@ private:
     core::Session session;
     app::CommandBus commands { session };
     engine::EngineController engineController;
+    services::WaveformCache waveformCache;
     juce::ApplicationCommandManager commandManager;
 
     // Declared before the widgets it styles: a LookAndFeel must outlive every

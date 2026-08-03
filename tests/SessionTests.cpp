@@ -12,6 +12,7 @@ using saamveda::app::RenameTrackCommand;
 using saamveda::app::SetTapTempoCommand;
 using saamveda::app::SetTempoCommand;
 using saamveda::app::SetTrackMuteCommand;
+using saamveda::app::SetTrackSoloCommand;
 using saamveda::app::SetTimeSignatureCommand;
 using saamveda::core::Session;
 
@@ -176,6 +177,38 @@ TEST_CASE ("track mute toggles and is undoable", "[core][mute]")
     SetTrackMuteCommand unmute (addFirst.id(), false);
     REQUIRE (bus.dispatch (unmute));
     REQUIRE_FALSE (session.isTrackMuted (addFirst.id()));
+}
+
+TEST_CASE ("track solo toggles independently of mute", "[core][solo]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    AddTrackCommand addFirst ("audio", "One");
+    AddTrackCommand addSecond ("audio", "Two");
+    REQUIRE (bus.dispatch (addFirst));
+    REQUIRE (bus.dispatch (addSecond));
+
+    REQUIRE_FALSE (session.hasAnySoloedTrack());
+
+    SetTrackSoloCommand solo (addSecond.id(), true);
+    REQUIRE (bus.dispatch (solo));
+    REQUIRE (session.isTrackSoloed (addSecond.id()));
+    REQUIRE_FALSE (session.isTrackSoloed (addFirst.id()));
+    REQUIRE (session.hasAnySoloedTrack());
+
+    // Mute and solo are separate flags; setting one must not disturb the other.
+    SetTrackMuteCommand mute (addSecond.id(), true);
+    REQUIRE (bus.dispatch (mute));
+    REQUIRE (session.isTrackSoloed (addSecond.id()));
+    REQUIRE (session.isTrackMuted (addSecond.id()));
+
+    REQUIRE (bus.undo());
+    REQUIRE_FALSE (session.isTrackMuted (addSecond.id()));
+    REQUIRE (session.isTrackSoloed (addSecond.id()));
+
+    REQUIRE (bus.undo());
+    REQUIRE_FALSE (session.hasAnySoloedTrack());
 }
 
 TEST_CASE ("mute survives serialisation", "[core][mute][persistence]")

@@ -74,6 +74,8 @@ Bindings are declared next to the actions they trigger, in `MainComponent::getCo
 | `Shift`+wheel | Scroll the timeline horizontally |
 | `Ctrl`+wheel | Zoom around the pointer |
 | Click a track's LED | Mute / unmute that track |
+| Click a track's **S** | Solo / unsolo that track |
+| Double-click a track name | Rename it inline |
 | Drag the middle of the top bar | Scroll |
 | Drag either end of the top bar | Zoom, anchoring the opposite end |
 | Double-click the top bar | Fit the project to the window |

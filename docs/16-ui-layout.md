@@ -74,6 +74,12 @@ buttons and `Ctrl+1`/`2`/`3`/`F` remain, driving the same state, so the bar alwa
 current view however it was changed. There is no bottom scrollbar; the vertical one stays on the
 right.
 
+**Waveforms draw only the slice that is on screen.** `paintClip` intersects the clip with the lane
+area and converts those two pixel columns back to source time, so `AudioThumbnail::drawChannels`
+renders at the resolution it is being displayed at. Handing it the whole clip and letting it squeeze
+into a narrow rectangle throws away the detail the thumbnail was built for. The conversion applies
+the clip's speed ratio, so a stretched clip still lines its waveform up with its audio.
+
 **The track header's LED is the mute button.** It is where FL Studio puts its
 track LED, so it is where the hand goes. The dot itself is 10px, but the click target is 22px
 square — an 8px target is a miss waiting to happen. Lit green means the track sounds; a hollow red
@@ -97,8 +103,8 @@ Reserved regions, so later phases do not have to re-cut the layout:
 
 | Phase | Feature | Where it goes |
 |:---:|---|---|
-| 3 | Waveform thumbnails | inside the clip body, replacing the placeholder centre line |
-| 3 | Per-track gain, pan, solo | track header, left of the mute button |
+| 3 | Per-track gain and pan | track header, left of the solo button |
+| 3 | Track reorder and colour | header drag handle; colour tag opens a picker |
 | 6 | Edit tools (draw, slice, select) | playlist tool strip, left of the zoom controls |
 | 9 | Piano roll | its own panel, peer of the Playlist panel |
 | 10 | Pattern picker | second row, right of the transport |

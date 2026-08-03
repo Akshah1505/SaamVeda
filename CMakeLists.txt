@@ -36,6 +36,7 @@ target_sources(SaamVedaStudio PRIVATE
     src/engine/EngineController.cpp
     src/engine/RealtimeSanityCheck.cpp
     src/services/TempoDetector.cpp
+    src/services/WaveformCache.cpp
     src/ui/ClipBrowser.cpp
     src/ui/MainComponent.cpp
     src/ui/PlaylistPanel.cpp

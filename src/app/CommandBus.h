@@ -107,6 +107,24 @@ private:
     bool muted;
 };
 
+class SetTrackSoloCommand final : public Command
+{
+public:
+    SetTrackSoloCommand (juce::String trackId, bool shouldSolo)
+        : idValue (std::move (trackId)), soloed (shouldSolo) {}
+
+    bool execute (core::Session& session) override
+    {
+        return session.setTrackSolo (idValue, soloed);
+    }
+
+    juce::String name() const override { return soloed ? "Solo Track" : "Unsolo Track"; }
+
+private:
+    juce::String idValue;
+    bool soloed;
+};
+
 class RenameTrackCommand final : public Command
 {
 public:

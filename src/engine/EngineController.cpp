@@ -326,6 +326,18 @@ bool EngineController::isTrackMuted (const juce::String& trackId) const
     return track != nullptr && track->isMuted (false);
 }
 
+bool EngineController::setTrackSolo (const juce::String& trackId, bool soloed)
+{
+    auto* track = trackForId (trackId);
+    if (track == nullptr)
+        return false;
+
+    // tracktion handles the "everything else goes quiet" part itself, so this
+    // stays a per-track flag rather than the host recomputing every other track.
+    track->setSolo (soloed);
+    return true;
+}
+
 bool EngineController::removeTrack (const juce::String& trackId)
 {
     if (auto* track = trackForId (trackId))
@@ -399,9 +411,10 @@ void EngineController::synchronise (const core::Session& session)
         if (engineTrack == nullptr)
             continue;
 
-        // Mute is session state, so an undo that restores it has to reach the
-        // engine like tempo does.
+        // Mute and solo are session state, so an undo that restores them has to
+        // reach the engine like tempo does.
         engineTrack->setMute (static_cast<bool> (sessionTrack.getProperty ("mute", false)));
+        engineTrack->setSolo (static_cast<bool> (sessionTrack.getProperty ("solo", false)));
 
         const auto sessionClips = session.clipsOf (sessionTrack);
 

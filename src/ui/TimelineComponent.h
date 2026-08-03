@@ -4,6 +4,7 @@
 
 #include "Layout.h"
 #include "ZoomScrollBar.h"
+#include "../services/WaveformCache.h"
 
 namespace saamveda::ui
 {
@@ -30,6 +31,10 @@ public:
     std::function<void (double)> onSeek;
     std::function<void (int)> onTrackSelected;
     std::function<void (int)> onTrackMuteToggled;
+    std::function<void (int)> onTrackSoloToggled;
+    std::function<void (int, juce::String)> onTrackRenamed;
+
+    void setWaveformCache (services::WaveformCache* cache) { waveformCache = cache; }
 
     void setLength (double seconds);
     void setPosition (double seconds);
@@ -52,6 +57,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
@@ -72,12 +78,17 @@ private:
     juce::Rectangle<int> laneArea() const;
     juce::Rectangle<int> rowBounds (int trackIndex, juce::Rectangle<int> column) const;
 
-    /** Clickable mute target. Painting and hit-testing both go through this so
-        the dot and the region that responds to a click cannot drift apart. */
+    /** Clickable targets. Painting and hit-testing both go through these so a
+        control and the region that responds to a click cannot drift apart. */
     juce::Rectangle<int> muteButtonBounds (int trackIndex) const;
+    juce::Rectangle<int> soloButtonBounds (int trackIndex) const;
+    juce::Rectangle<int> nameBounds (int trackIndex) const;
 
     int trackIndexAt (juce::Point<int> position) const;
     bool isTrackMuted (int trackIndex) const;
+    bool isTrackSoloed (int trackIndex) const;
+    void beginRename (int trackIndex);
+    void commitRename();
     int rowCount() const;
     int contentHeight() const;
 
@@ -101,11 +112,15 @@ private:
     int timeSigDenominator = 4;
     int selectedTrackIndex = -1;
     int hoveredMuteTrack = -1;
+    int hoveredSoloTrack = -1;
+    int renamingTrackIndex = -1;
     bool followPlayhead = true;
 
     juce::ValueTree tracks;
+    services::WaveformCache* waveformCache = nullptr;
     ZoomScrollBar zoomBar;
     juce::ScrollBar verticalScrollBar { true };
+    juce::TextEditor nameEditor;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TimelineComponent)
 };
