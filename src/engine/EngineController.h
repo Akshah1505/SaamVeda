@@ -36,18 +36,29 @@ public:
 
     // Musical settings
     void setTempo (double bpm);
-    void setSourceTempo (double bpm);
-    void setDetectedTempo (double bpm);
     void setTapTempo (double bpm);
-    void alignFirstBeat (double firstBeatSeconds);
-    void alignBeatAtPosition (double beatPositionSeconds);
     void setTimeSignature (int numerator, int denominator);
+
+    /** Applies a detection result to one clip in a single transport cycle.
+
+        @param projectTempoBpm  the new project tempo, or 0 to leave it alone.
+                                Only the first import should move it.
+        @param sourceTempoBpm   the tempo this clip's audio was recorded at. The
+                                playback ratio is project / source, so passing
+                                the project tempo plays it at original speed.
+                                Held per clip because a project can contain
+                                material recorded at several different tempos.
+        @param offsetSeconds    lead-in trimmed from the front of this clip only.
+    */
+    bool applyDetectedTempo (const juce::String& clipId, double projectTempoBpm,
+                             double sourceTempoBpm, double offsetSeconds);
 
     // Structure, mirrored from the session by id
     bool ensureTrack (const juce::String& trackId);
     bool removeTrack (const juce::String& trackId);
     double importAudioFile (const juce::File& file, const juce::String& trackId,
-                            const juce::String& clipId);
+                            const juce::String& clipId, double sourceTempoBpm,
+                            double offsetSeconds);
     void synchronise (const core::Session& session);
 
     // Queries
@@ -57,7 +68,6 @@ public:
     double positionSeconds() const;
     double contentLengthSeconds() const;
     double tempo() const;
-    double sourceTempo() const noexcept { return currentSourceTempo; }
     int trackCount() const;
 
     RealtimeSanityCheck::Report realtimeReport() const { return realtimeCheck.report(); }
@@ -69,14 +79,17 @@ private:
     tracktion::engine::Engine engine { "SaamVeda Studio" };
     std::unique_ptr<tracktion::engine::Edit> edit;
     RealtimeSanityCheck realtimeCheck;
-    double currentSourceTempo = 120.0;
 
     static const juce::Identifier sessionTrackIdProperty;
     static const juce::Identifier sessionClipIdProperty;
+    static const juce::Identifier sourceTempoProperty;
+    static const juce::Identifier offsetProperty;
 
     tracktion::engine::AudioTrack* trackForId (const juce::String& trackId) const;
     tracktion::engine::Clip* clipForId (tracktion::engine::AudioTrack&,
                                         const juce::String& clipId) const;
+    tracktion::engine::AudioClipBase* audioClipForId (const juce::String& clipId) const;
+    void applyClipSettings (tracktion::engine::AudioClipBase& clip);
     void applyTempoToAudioClips();
     void updateLoopRange();
 

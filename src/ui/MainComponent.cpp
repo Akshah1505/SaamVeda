@@ -383,8 +383,13 @@ void MainComponent::importAudio()
             return;
         }
 
-        const auto duration = engineController.importAudioFile (file, command.createdTrackId(),
-                                                                command.createdClipId());
+        // Decided now, not when detection returns: two imports in quick
+        // succession would otherwise race and both believe they were first.
+        const auto isFirstImport = session.clipCount() == 1;
+
+        const auto duration = engineController.importAudioFile (
+            file, command.createdTrackId(), command.createdClipId(),
+            session.clipSourceTempo (command.createdClipId()), 0.0);
         if (duration <= 0.0)
         {
             // The engine rejected the file, so roll the session back rather than
@@ -406,11 +411,14 @@ void MainComponent::importAudio()
         refreshTrackSummary();
         setStatus ("Imported " + file.getFileName() + "; detecting tempo...");
 
-        analysisPool.addJob ([safeThis = juce::Component::SafePointer<MainComponent> (this), file]
+        const auto clipId = command.createdClipId();
+
+        analysisPool.addJob ([safeThis = juce::Component::SafePointer<MainComponent> (this),
+                              file, clipId, isFirstImport]
         {
             const auto result = services::detectTempo (file);
 
-            juce::MessageManager::callAsync ([safeThis, result]
+            juce::MessageManager::callAsync ([safeThis, result, clipId, isFirstImport]
             {
                 if (safeThis == nullptr)
                     return;
@@ -422,20 +430,32 @@ void MainComponent::importAudio()
                     return;
                 }
 
-                // Detection synchronizes the metronome to the imported
-                // recording; it must not time-stretch that recording.
-                safeThis->engineController.setDetectedTempo (result.bpm);
-                safeThis->engineController.alignFirstBeat (result.firstBeatSeconds);
-
                 // This lands long after the import transaction closed, and the
                 // user may have edited since. Going through the bus gives it
                 // its own undo step instead of silently joining whatever
                 // transaction happens to be open.
-                SetTempoCommand tempoCommand (result.bpm);
-                safeThis->commands.dispatch (tempoCommand);
+                ApplyDetectedTempoCommand detectedCommand (clipId, result.bpm,
+                                                           result.firstBeatSeconds, isFirstImport);
+                safeThis->commands.dispatch (detectedCommand);
+
+                // Detection describes the audio as imported; it is not a request
+                // to alter it. Recording the project tempo as this clip's source
+                // tempo leaves it at 1.0x either way.
+                safeThis->engineController.applyDetectedTempo (
+                    clipId,
+                    isFirstImport ? safeThis->session.tempo() : 0.0,
+                    safeThis->session.tempo(),
+                    result.firstBeatSeconds);
+
                 safeThis->applySessionToUi();
-                safeThis->setStatus ("Detected " + juce::String (result.bpm, 1)
-                                     + " BPM; original audio unchanged, metronome synchronized.");
+
+                safeThis->setStatus (
+                    isFirstImport
+                        ? "Detected " + juce::String (result.bpm, 1)
+                              + " BPM; project tempo set, audio unchanged."
+                        : "Detected " + juce::String (result.bpm, 1) + " BPM; project stays at "
+                              + juce::String (safeThis->session.tempo(), 1)
+                              + " BPM, audio unchanged.");
             });
         });
     });
@@ -450,7 +470,7 @@ void MainComponent::showTapTempo()
                 return;
 
             safeThis->engineController.setTapTempo (bpm);
-            SetTempoCommand tempoCommand (bpm);
+            SetTapTempoCommand tempoCommand (bpm);
             safeThis->commands.dispatch (tempoCommand);
             safeThis->engineController.setMetronomeEnabled (true);
             safeThis->applySessionToUi();

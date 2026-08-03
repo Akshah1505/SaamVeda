@@ -7,6 +7,8 @@ namespace te = tracktion::engine;
 
 const juce::Identifier EngineController::sessionTrackIdProperty { "saamvedaTrackId" };
 const juce::Identifier EngineController::sessionClipIdProperty  { "saamvedaClipId" };
+const juce::Identifier EngineController::sourceTempoProperty    { "saamvedaSourceTempo" };
+const juce::Identifier EngineController::offsetProperty         { "saamvedaOffset" };
 
 namespace
 {
@@ -145,146 +147,96 @@ void EngineController::setTempo (double bpm)
     });
 }
 
-void EngineController::setSourceTempo (double bpm)
-{
-    preservingTransport ([this, bpm]
-    {
-        currentSourceTempo = juce::jlimit (20.0, 400.0, bpm);
-        applyTempoToAudioClips();
-    });
-}
-
-void EngineController::setDetectedTempo (double bpm)
-{
-    const auto detectedBpm = juce::jlimit (20.0, 400.0, bpm);
-
-    // Detection describes the audio as imported; it is not a request to alter
-    // it. Setting source and project tempo together leaves every clip at 1.0x.
-    preservingTransport ([this, detectedBpm]
-    {
-        currentSourceTempo = detectedBpm;
-        edit->tempoSequence.getTempo (0)->setBpm (detectedBpm);
-        applyTempoToAudioClips();
-    });
-}
-
 void EngineController::setTapTempo (double bpm)
 {
     const auto tappedBpm = juce::jlimit (20.0, 400.0, bpm);
 
-    // Keep the recording at 1.0x by updating its source tempo together with the
-    // click engine's tempo.
+    // Re-base every clip onto the new tempo so tapping retunes the click
+    // without time-stretching anything already on the timeline.
     preservingTransport ([this, tappedBpm]
     {
-        currentSourceTempo = tappedBpm;
         edit->tempoSequence.getTempo (0)->setBpm (tappedBpm);
 
         for (auto* track : te::getAudioTracks (*edit))
             for (auto* clip : track->getClips())
                 if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip))
                 {
-                    audioClip->setAutoTempo (false);
-                    audioClip->setAutoPitch (false);
-                    audioClip->setTimeStretchMode (te::TimeStretcher::soundtouchBetter);
-                    audioClip->setSpeedRatio (1.0);
-                    audioClip->setLength (audioClip->getSourceLength(), true);
+                    audioClip->state.setProperty (sourceTempoProperty, tappedBpm, nullptr);
+                    applyClipSettings (*audioClip);
                 }
     });
 }
 
-void EngineController::alignFirstBeat (double firstBeatSeconds)
+bool EngineController::applyDetectedTempo (const juce::String& clipId, double projectTempoBpm,
+                                           double sourceTempoBpm, double offsetSeconds)
 {
-    if (firstBeatSeconds <= 0.0)
-        return;
+    auto* clip = audioClipForId (clipId);
+    if (clip == nullptr)
+        return false;
 
-    const auto wasPlaying = isPlaying();
-    if (wasPlaying)
-        stop();
-
-    // The click grid starts at 0. Skip the song's pre-beat lead-in so its first
-    // detected beat is heard at transport zero without altering audio speed.
-    const auto shift = duration (firstBeatSeconds);
-
-    for (auto* track : te::getAudioTracks (*edit))
+    // One transport cycle for the whole detection result. Doing it as three
+    // separate calls stopped and restarted playback three times.
+    preservingTransport ([this, clip, projectTempoBpm, sourceTempoBpm, offsetSeconds]
     {
-        for (auto* clip : track->getClips())
-        {
-            const auto position = clip->getPosition();
-            if (shift < position.getLength())
-                clip->setPosition ({ { position.getStart(), position.getLength() - shift },
-                                      position.getOffset() + shift });
-        }
-    }
+        if (projectTempoBpm > 0.0)
+            edit->tempoSequence.getTempo (0)->setBpm (juce::jlimit (20.0, 400.0, projectTempoBpm));
 
-    seek (0.0);
+        clip->state.setProperty (sourceTempoProperty,
+                                 juce::jlimit (20.0, 400.0, sourceTempoBpm), nullptr);
+
+        // The click grid starts at 0. Trimming the song's pre-beat lead-in puts
+        // its first detected beat at transport zero without altering audio
+        // speed - and touches only this clip, so importing a second song cannot
+        // shift the first.
+        clip->state.setProperty (offsetProperty, juce::jmax (0.0, offsetSeconds), nullptr);
+
+        // A project tempo change re-rates every clip, not just this one.
+        if (projectTempoBpm > 0.0)
+            applyTempoToAudioClips();
+        else
+            applyClipSettings (*clip);
+    });
+
     updateLoopRange();
-
-    if (wasPlaying)
-        play();
+    return true;
 }
 
-void EngineController::alignBeatAtPosition (double beatPositionSeconds)
+void EngineController::applyClipSettings (te::AudioClipBase& clip)
 {
-    const auto beatSeconds = 60.0 / juce::jmax (1.0, tempo());
-    const auto phase = std::fmod (juce::jmax (0.0, beatPositionSeconds), beatSeconds);
-    const auto shift = phase <= beatSeconds * 0.5 ? -phase : beatSeconds - phase;
-    if (std::abs (shift) < 0.001)
-        return;
+    // Each clip stretches against the tempo *it* was recorded at. A single
+    // engine-wide source tempo cannot describe a project holding two songs, and
+    // it survives undo, which is how removing the second song used to leave the
+    // first one stretched.
+    const auto storedSource = static_cast<double> (clip.state.getProperty (sourceTempoProperty, 0.0));
+    const auto sourceTempo = storedSource > 0.0 ? storedSource : tempo();
 
-    const auto wasPlaying = isPlaying();
-    if (wasPlaying)
-        stop();
+    // A 120 BPM recording targeted at 60 BPM uses a 0.5 ratio and therefore
+    // becomes twice as long while SoundTouch preserves pitch.
+    const auto speedRatio = juce::jlimit (0.1, 10.0, tempo() / sourceTempo);
 
-    for (auto* track : te::getAudioTracks (*edit))
-    {
-        for (auto* clip : track->getClips())
-        {
-            const auto position = clip->getPosition();
-            const auto newStartSeconds = position.getStart().inSeconds() + shift;
+    clip.setAutoTempo (false);
+    clip.setAutoPitch (false);
+    clip.setTimeStretchMode (te::TimeStretcher::soundtouchBetter);
+    clip.setSpeedRatio (speedRatio);
 
-            if (newStartSeconds >= 0.0)
-            {
-                clip->setStart (seconds (newStartSeconds), true, true);
-            }
-            else
-            {
-                const auto trim = duration (-newStartSeconds);
-                if (trim < position.getLength())
-                    clip->setPosition ({ { tracktion::core::TimePosition(),
-                                           position.getLength() - trim },
-                                         position.getOffset() + trim });
-            }
-        }
-    }
+    const auto fullLength = clip.getSourceLength().inSeconds() / speedRatio;
+    const auto trim = juce::jlimit (0.0, juce::jmax (0.0, fullLength - 0.05),
+                                    juce::jmax (0.0, static_cast<double> (
+                                        clip.state.getProperty (offsetProperty, 0.0))));
 
-    seek (juce::jmax (0.0, beatPositionSeconds + shift));
-    updateLoopRange();
-
-    if (wasPlaying)
-        play();
+    // Written absolutely rather than trimmed off the current position: this
+    // runs again on every tempo change, and an incremental trim would eat a
+    // little more of the clip each time.
+    clip.setPosition ({ { clip.getPosition().getStart(), duration (fullLength - trim) },
+                        duration (trim) });
 }
 
 void EngineController::applyTempoToAudioClips()
 {
-    const auto projectTempo = tempo();
-    // A 120 BPM recording targeted at 60 BPM uses a 0.5 ratio and therefore
-    // becomes twice as long while SoundTouch preserves pitch.
-    const auto speedRatio = projectTempo / currentSourceTempo;
-
     for (auto* track : te::getAudioTracks (*edit))
-    {
         for (auto* clip : track->getClips())
-        {
             if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip))
-            {
-                audioClip->setAutoTempo (false);
-                audioClip->setAutoPitch (false);
-                audioClip->setTimeStretchMode (te::TimeStretcher::soundtouchBetter);
-                audioClip->setSpeedRatio (speedRatio);
-                audioClip->setLength (audioClip->getSourceLength() / speedRatio, true);
-            }
-        }
-    }
+                applyClipSettings (*audioClip);
 
     updateLoopRange();
 }
@@ -324,6 +276,18 @@ te::Clip* EngineController::clipForId (te::AudioTrack& track, const juce::String
     return nullptr;
 }
 
+te::AudioClipBase* EngineController::audioClipForId (const juce::String& clipId) const
+{
+    if (clipId.isEmpty())
+        return nullptr;
+
+    for (auto* track : te::getAudioTracks (*edit))
+        if (auto* clip = clipForId (*track, clipId))
+            return dynamic_cast<te::AudioClipBase*> (clip);
+
+    return nullptr;
+}
+
 bool EngineController::ensureTrack (const juce::String& trackId)
 {
     if (trackId.isEmpty())
@@ -356,7 +320,8 @@ bool EngineController::removeTrack (const juce::String& trackId)
 }
 
 double EngineController::importAudioFile (const juce::File& file, const juce::String& trackId,
-                                          const juce::String& clipId)
+                                          const juce::String& clipId, double sourceTempoBpm,
+                                          double offsetSeconds)
 {
     te::AudioFile audioFile (engine, file);
     if (! file.existsAsFile() || ! audioFile.isValid() || ! ensureTrack (trackId))
@@ -376,13 +341,10 @@ double EngineController::importAudioFile (const juce::File& file, const juce::St
         return 0.0;
 
     clip->state.setProperty (sessionClipIdProperty, clipId, nullptr);
-    clip->setAutoTempo (false);
-    clip->setAutoPitch (false);
-    clip->setTimeStretchMode (te::TimeStretcher::soundtouchBetter);
-
-    const auto speedRatio = tempo() / currentSourceTempo;
-    clip->setSpeedRatio (speedRatio);
-    clip->setLength (clip->getSourceLength() / speedRatio, true);
+    clip->state.setProperty (sourceTempoProperty,
+                             sourceTempoBpm > 0.0 ? sourceTempoBpm : tempo(), nullptr);
+    clip->state.setProperty (offsetProperty, juce::jmax (0.0, offsetSeconds), nullptr);
+    applyClipSettings (*clip);
 
     updateLoopRange();
     return lengthSeconds;
@@ -438,22 +400,36 @@ void EngineController::synchronise (const core::Session& session)
         {
             const auto sessionClip = sessionClips.getChild (i);
             const auto clipId = sessionClip.getProperty (core::Session::idProperty()).toString();
-            if (clipForId (*engineTrack, clipId) != nullptr)
+            const auto sourceTempo = static_cast<double> (
+                sessionClip.getProperty ("sourceTempo", session.tempo()));
+            const auto offset = static_cast<double> (sessionClip.getProperty ("offset", 0.0));
+
+            if (auto* existing = audioClipForId (clipId))
+            {
+                // Already present, but undo may have restored a different
+                // source tempo or lead-in behind it.
+                existing->state.setProperty (sourceTempoProperty, sourceTempo, nullptr);
+                existing->state.setProperty (offsetProperty, offset, nullptr);
                 continue;
+            }
 
             const auto path = sessionClip.getProperty ("sourceFile").toString();
             if (path.isNotEmpty())
-                importAudioFile (juce::File (path), trackId, clipId);
+                importAudioFile (juce::File (path), trackId, clipId, sourceTempo, offset);
         }
     }
 
     // The session owns tempo and time signature, so an undo that restores them
     // has to reach the engine too.
     if (! juce::approximatelyEqual (session.tempo(), tempo()))
-        setTempo (session.tempo());
+        edit->tempoSequence.getTempo (0)->setBpm (juce::jlimit (20.0, 400.0, session.tempo()));
 
     setTimeSignature (session.timeSignatureNumerator(), session.timeSignatureDenominator());
-    updateLoopRange();
+
+    // Recompute every ratio from the restored per-clip source tempos. Without
+    // this an undo leaves surviving clips stretched against the tempo of the
+    // clip that was just removed.
+    applyTempoToAudioClips();
 }
 
 //==============================================================================

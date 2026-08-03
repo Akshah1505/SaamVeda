@@ -4,13 +4,34 @@
 #include "../src/app/CommandBus.h"
 
 using saamveda::app::AddTrackCommand;
+using saamveda::app::ApplyDetectedTempoCommand;
 using saamveda::app::CommandBus;
 using saamveda::app::ImportAudioCommand;
 using saamveda::app::RemoveTrackCommand;
 using saamveda::app::RenameTrackCommand;
+using saamveda::app::SetTapTempoCommand;
 using saamveda::app::SetTempoCommand;
 using saamveda::app::SetTimeSignatureCommand;
 using saamveda::core::Session;
+
+namespace
+{
+    /** Imports a file and applies a detection result to it, the way
+        MainComponent does: only the first import may move the project tempo. */
+    juce::String importSongWithDetectedTempo (CommandBus& bus, Session& session,
+                                              const juce::String& path, double detectedBpm,
+                                              double firstBeatSeconds = 0.0)
+    {
+        ImportAudioCommand import (juce::File (path), 60.0);
+        REQUIRE (bus.dispatch (import));
+
+        const auto isFirstImport = session.clipCount() == 1;
+        ApplyDetectedTempoCommand detected (import.createdClipId(), detectedBpm, firstBeatSeconds,
+                                            isFirstImport);
+        bus.dispatch (detected);
+        return import.createdClipId();
+    }
+}
 
 TEST_CASE ("new session has schema defaults", "[core]")
 {
@@ -173,6 +194,89 @@ TEST_CASE ("time signature changes are undoable", "[core][undo][tempo]")
     REQUIRE (bus.undo());
     REQUIRE (session.timeSignatureNumerator() == 4);
     REQUIRE (session.timeSignatureDenominator() == 4);
+}
+
+TEST_CASE ("the first import sets the project tempo, later imports do not",
+           "[core][tempo][import]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    const auto firstClip = importSongWithDetectedTempo (bus, session, "D:\\Music\\first.wav", 90.0);
+    REQUIRE (session.tempo() == 90.0);
+    REQUIRE (session.clipSourceTempo (firstClip) == 90.0);
+
+    // A second song at a different tempo must not hijack the project. If it
+    // did, the first song would be re-stretched by 130/90 behind the user's
+    // back.
+    const auto secondClip = importSongWithDetectedTempo (bus, session, "D:\\Music\\second.wav",
+                                                         130.0);
+    REQUIRE (session.tempo() == 90.0);
+    REQUIRE (session.clipSourceTempo (firstClip) == 90.0);
+    REQUIRE (session.clipSourceTempo (secondClip) == 90.0);
+}
+
+TEST_CASE ("undoing the second song leaves the first at its own tempo",
+           "[core][tempo][undo][import]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    const auto firstClip = importSongWithDetectedTempo (bus, session, "D:\\Music\\first.wav",
+                                                        90.0, 0.4);
+    importSongWithDetectedTempo (bus, session, "D:\\Music\\second.wav", 130.0, 0.7);
+    REQUIRE (session.clipCount() == 2);
+    REQUIRE (session.tempo() == 90.0);
+
+    // Undo back to one song. The number of steps is deliberately not asserted:
+    // a detection that changed nothing records no transaction, so it varies.
+    // What must hold is the state the user is left in.
+    while (session.clipCount() > 1)
+        REQUIRE (bus.undo());
+
+    REQUIRE (session.clipCount() == 1);
+    REQUIRE (session.tempo() == 90.0);
+
+    // Source tempo equal to project tempo is what makes the surviving song play
+    // at its recorded speed rather than stretched by the removed song's tempo.
+    REQUIRE (session.clipSourceTempo (firstClip) == 90.0);
+    REQUIRE (session.clipSourceTempo (firstClip) == session.tempo());
+}
+
+TEST_CASE ("clip source tempo survives a full undo and redo", "[core][tempo][undo]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    const auto clipId = importSongWithDetectedTempo (bus, session, "D:\\Music\\only.wav", 75.0);
+    REQUIRE (session.tempo() == 75.0);
+
+    REQUIRE (bus.undo());
+    REQUIRE (session.tempo() == 120.0);
+
+    REQUIRE (bus.redo());
+    REQUIRE (session.tempo() == 75.0);
+    REQUIRE (session.clipSourceTempo (clipId) == 75.0);
+}
+
+TEST_CASE ("tap tempo re-bases every clip so nothing is stretched", "[core][tempo]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    const auto firstClip = importSongWithDetectedTempo (bus, session, "D:\\Music\\a.wav", 90.0);
+    const auto secondClip = importSongWithDetectedTempo (bus, session, "D:\\Music\\b.wav", 130.0);
+
+    SetTapTempoCommand tap (100.0);
+    REQUIRE (bus.dispatch (tap));
+
+    REQUIRE (session.tempo() == 100.0);
+    REQUIRE (session.clipSourceTempo (firstClip) == 100.0);
+    REQUIRE (session.clipSourceTempo (secondClip) == 100.0);
+
+    REQUIRE (bus.undo());
+    REQUIRE (session.tempo() == 90.0);
+    REQUIRE (session.clipSourceTempo (firstClip) == 90.0);
 }
 
 TEST_CASE ("a hundred operations undo cleanly", "[core][undo]")

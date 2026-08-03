@@ -141,6 +141,64 @@ private:
     double value;
 };
 
+/** Applies the result of tempo detection to one imported clip.
+
+    Whether the project tempo follows the detection is decided by the caller at
+    import time, not here: only the first import may set it. A later import that
+    hijacked the project tempo would re-stretch every clip already on the
+    timeline against a tempo they were never recorded at.
+
+    Both effects land in one transaction so a single Ctrl+Z undoes the whole
+    detection rather than half of it.
+*/
+class ApplyDetectedTempoCommand final : public Command
+{
+public:
+    ApplyDetectedTempoCommand (juce::String clipId, double detectedBpm,
+                               double firstBeatSeconds, bool shouldSetProjectTempo)
+        : idValue (std::move (clipId)), detected (detectedBpm),
+          firstBeat (firstBeatSeconds), setsProjectTempo (shouldSetProjectTempo) {}
+
+    bool execute (core::Session& session) override
+    {
+        if (setsProjectTempo)
+            session.setTempo (detected);
+
+        // Recording the project tempo as the clip's source tempo is what keeps
+        // it at its original speed: the engine's ratio is project / source.
+        const auto changed = session.setClipSourceTempo (idValue, session.tempo());
+        session.setClipOffset (idValue, firstBeat);
+        return changed;
+    }
+
+    juce::String name() const override { return "Detect Tempo"; }
+
+private:
+    juce::String idValue;
+    double detected, firstBeat;
+    bool setsProjectTempo;
+};
+
+/** Tap tempo: retunes the project and re-bases every clip onto the new tempo so
+    nothing is time-stretched by the change. */
+class SetTapTempoCommand final : public Command
+{
+public:
+    explicit SetTapTempoCommand (double bpm) : value (bpm) {}
+
+    bool execute (core::Session& session) override
+    {
+        const auto changed = session.setTempo (value);
+        session.setAllClipSourceTempos (session.tempo());
+        return changed;
+    }
+
+    juce::String name() const override { return "Tap Tempo"; }
+
+private:
+    double value;
+};
+
 class SetTimeSignatureCommand final : public Command
 {
 public:

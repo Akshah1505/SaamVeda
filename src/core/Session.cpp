@@ -87,9 +87,81 @@ juce::ValueTree Session::addAudioClip (juce::String trackId, const juce::File& s
     clip.setProperty ("name", sourceFile.getFileNameWithoutExtension(), &undo);
     clip.setProperty ("start", 0.0, &undo);
     clip.setProperty ("length", lengthSeconds, &undo);
+    clip.setProperty ("offset", 0.0, &undo);
+    clip.setProperty ("gainDb", 0.0, &undo);
+    // Defaults to the project tempo, which makes the clip play at its recorded
+    // speed until something says otherwise.
+    clip.setProperty ("sourceTempo", tempo(), &undo);
     clip.setProperty ("sourceFile", sourceFile.getFullPathName(), &undo);
     clipsOf (track).addChild (clip, -1, &undo);
     return clip;
+}
+
+juce::ValueTree Session::clipWithId (const juce::String& clipId) const
+{
+    if (clipId.isEmpty())
+        return {};
+
+    const auto trackList = tracks();
+    for (int i = 0; i < trackList.getNumChildren(); ++i)
+    {
+        auto clip = clipsOf (trackList.getChild (i)).getChildWithProperty (idProperty(), clipId);
+        if (clip.isValid())
+            return clip;
+    }
+
+    return {};
+}
+
+int Session::clipCount() const
+{
+    int total = 0;
+    const auto trackList = tracks();
+
+    for (int i = 0; i < trackList.getNumChildren(); ++i)
+        total += clipsOf (trackList.getChild (i)).getNumChildren();
+
+    return total;
+}
+
+bool Session::setClipSourceTempo (const juce::String& clipId, double bpm)
+{
+    auto clip = clipWithId (clipId);
+    if (! clip.isValid())
+        return false;
+
+    clip.setProperty ("sourceTempo", juce::jlimit (20.0, 400.0, bpm), &undo);
+    return true;
+}
+
+void Session::setAllClipSourceTempos (double bpm)
+{
+    const auto clamped = juce::jlimit (20.0, 400.0, bpm);
+    const auto trackList = tracks();
+
+    for (int i = 0; i < trackList.getNumChildren(); ++i)
+    {
+        auto clips = clipsOf (trackList.getChild (i));
+        for (int j = 0; j < clips.getNumChildren(); ++j)
+            clips.getChild (j).setProperty ("sourceTempo", clamped, &undo);
+    }
+}
+
+double Session::clipSourceTempo (const juce::String& clipId) const
+{
+    const auto clip = clipWithId (clipId);
+    return clip.isValid() ? static_cast<double> (clip.getProperty ("sourceTempo", tempo()))
+                          : tempo();
+}
+
+bool Session::setClipOffset (const juce::String& clipId, double seconds)
+{
+    auto clip = clipWithId (clipId);
+    if (! clip.isValid())
+        return false;
+
+    clip.setProperty ("offset", juce::jmax (0.0, seconds), &undo);
+    return true;
 }
 
 bool Session::removeTrack (juce::String trackId)
