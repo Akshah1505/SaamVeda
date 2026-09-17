@@ -56,6 +56,9 @@ public:
     /** Moves one clip along the timeline. */
     bool setClipStart (const juce::String& clipId, double startSeconds);
 
+    /** Reparents a clip onto another track without re-reading its file. */
+    bool moveClipToTrack (const juce::String& clipId, const juce::String& targetTrackId);
+
     // Structure, mirrored from the session by id
     bool ensureTrack (const juce::String& trackId);
     bool removeTrack (const juce::String& trackId);

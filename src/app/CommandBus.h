@@ -170,26 +170,38 @@ private:
     juce::String trackId, clipId;
 };
 
-/** Moves a clip along the timeline.
+/** Moves a clip: along the timeline, onto another track, or both at once.
 
     One command per completed drag, not per mouse move: dragging a clip across
-    twenty bars is one thing the user did, and it should be one Ctrl+Z.
+    twenty bars is one thing the user did, and it should be one Ctrl+Z. Both
+    axes travel together for the same reason - a diagonal drag is still one
+    gesture, and undoing half of it would leave the clip somewhere the user
+    never put it.
+
+    An empty targetTrackId means "leave it on the track it is already on".
 */
 class MoveClipCommand final : public Command
 {
 public:
-    MoveClipCommand (juce::String clipId, double newStartSeconds)
-        : idValue (std::move (clipId)), start (newStartSeconds) {}
+    MoveClipCommand (juce::String clipId, double newStartSeconds,
+                     juce::String targetTrackId = {})
+        : idValue (std::move (clipId)), targetTrack (std::move (targetTrackId)),
+          start (newStartSeconds) {}
 
     bool execute (core::Session& session) override
     {
-        return session.setClipStart (idValue, start);
+        auto changed = false;
+
+        if (targetTrack.isNotEmpty())
+            changed = session.moveClipToTrack (idValue, targetTrack) || changed;
+
+        return session.setClipStart (idValue, start) || changed;
     }
 
     juce::String name() const override { return "Move Clip"; }
 
 private:
-    juce::String idValue;
+    juce::String idValue, targetTrack;
     double start;
 };
 

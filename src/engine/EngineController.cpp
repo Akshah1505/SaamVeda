@@ -329,6 +329,30 @@ bool EngineController::setClipStart (const juce::String& clipId, double startSec
     return true;
 }
 
+bool EngineController::moveClipToTrack (const juce::String& clipId,
+                                        const juce::String& targetTrackId)
+{
+    auto* clip = audioClipForId (clipId);
+    auto* target = trackForId (targetTrackId);
+    if (clip == nullptr || target == nullptr)
+        return false;
+
+    auto moved = false;
+
+    preservingTransport ([this, clip, target, &moved]
+    {
+        // moveTo reparents the existing clip, so the audio file is not read
+        // again - which a delete-and-reimport round trip would do.
+        moved = clip->moveTo (*target);
+
+        if (moved)
+            applyClipSettings (*clip);
+    });
+
+    updateLoopRange();
+    return moved;
+}
+
 bool EngineController::setTrackMute (const juce::String& trackId, bool muted)
 {
     auto* track = trackForId (trackId);
@@ -423,6 +447,18 @@ void EngineController::synchronise (const core::Session& session)
             edit->deleteTrack (engineTracks[i]);
     }
 
+    // Every clip the session still knows about, wherever it now lives. A clip
+    // dragged to another track is not a deletion, so it must not be torn down
+    // and read off disk again just because it left the track it started on.
+    juce::StringArray wantedClipIdsAnywhere;
+    for (int i = 0; i < sessionTracks.getNumChildren(); ++i)
+    {
+        const auto clips = session.clipsOf (sessionTracks.getChild (i));
+        for (int j = 0; j < clips.getNumChildren(); ++j)
+            wantedClipIdsAnywhere.add (clips.getChild (j)
+                                           .getProperty (core::Session::idProperty()).toString());
+    }
+
     for (int trackIndex = 0; trackIndex < sessionTracks.getNumChildren(); ++trackIndex)
     {
         const auto sessionTrack = sessionTracks.getChild (trackIndex);
@@ -441,17 +477,14 @@ void EngineController::synchronise (const core::Session& session)
 
         const auto sessionClips = session.clipsOf (sessionTrack);
 
-        juce::StringArray wantedClipIds;
-        for (int i = 0; i < sessionClips.getNumChildren(); ++i)
-            wantedClipIds.add (sessionClips.getChild (i)
-                                   .getProperty (core::Session::idProperty()).toString());
-
         // Copy before mutating: removing a clip modifies the track's own array.
+        // Only clips the session has dropped entirely are torn down here; one
+        // that merely changed track is relocated below.
         const juce::Array<te::Clip*> currentClips (engineTrack->getClips());
         for (auto* clip : currentClips)
         {
             const auto id = clip->state.getProperty (sessionClipIdProperty).toString();
-            if (id.isEmpty() || ! wantedClipIds.contains (id))
+            if (id.isEmpty() || ! wantedClipIdsAnywhere.contains (id))
                 clip->removeFromParent();
         }
 
@@ -466,8 +499,12 @@ void EngineController::synchronise (const core::Session& session)
 
             if (auto* existing = audioClipForId (clipId))
             {
-                // Already present, but undo may have restored a different
-                // source tempo, lead-in or position behind it.
+                // Present somewhere. Put it on the track the session says it
+                // belongs to, then refresh the properties an undo may have
+                // restored behind it.
+                if (existing->getTrack() != engineTrack)
+                    existing->moveTo (*engineTrack);
+
                 existing->state.setProperty (sourceTempoProperty, sourceTempo, nullptr);
                 existing->state.setProperty (offsetProperty, offset, nullptr);
                 existing->state.setProperty (startProperty, clipStart, nullptr);

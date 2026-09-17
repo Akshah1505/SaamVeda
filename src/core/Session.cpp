@@ -204,6 +204,42 @@ double Session::clipStart (const juce::String& clipId) const
     return clip.isValid() ? static_cast<double> (clip.getProperty ("start", 0.0)) : 0.0;
 }
 
+juce::String Session::trackIdContainingClip (const juce::String& clipId) const
+{
+    if (clipId.isEmpty())
+        return {};
+
+    const auto trackList = tracks();
+    for (int i = 0; i < trackList.getNumChildren(); ++i)
+    {
+        const auto track = trackList.getChild (i);
+        if (clipsOf (track).getChildWithProperty (idProperty(), clipId).isValid())
+            return track.getProperty (idProperty()).toString();
+    }
+
+    return {};
+}
+
+bool Session::moveClipToTrack (const juce::String& clipId, const juce::String& targetTrackId)
+{
+    const auto sourceTrackId = trackIdContainingClip (clipId);
+    if (sourceTrackId.isEmpty() || sourceTrackId == targetTrackId)
+        return false;
+
+    auto targetTrack = trackWithId (targetTrackId);
+    if (! targetTrack.isValid())
+        return false;
+
+    auto clip = clipWithId (clipId);
+    auto sourceClips = clipsOf (trackWithId (sourceTrackId));
+
+    // The node is reference counted, so it survives being detached and keeps
+    // its id, length and source file - the clip stays the same clip.
+    sourceClips.removeChild (clip, &undo);
+    clipsOf (targetTrack).addChild (clip, -1, &undo);
+    return true;
+}
+
 bool Session::setTrackMute (const juce::String& trackId, bool muted)
 {
     auto track = trackWithId (trackId);

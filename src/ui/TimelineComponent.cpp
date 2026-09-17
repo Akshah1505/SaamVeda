@@ -173,6 +173,20 @@ TimelineComponent::ClipRef TimelineComponent::clipAt (juce::Point<int> position)
     return {};
 }
 
+int TimelineComponent::laneTrackIndexAt (juce::Point<int> position) const
+{
+    if (tracks.getNumChildren() == 0)
+        return -1;
+
+    const auto lanes = laneArea();
+    const auto index = static_cast<int> (std::floor (
+        (position.y - lanes.getY() + verticalOffset) / static_cast<double> (layout::laneHeight)));
+
+    // Clamped rather than rejected: dragging past the last track should land on
+    // the last track, not snap back to where the clip came from.
+    return juce::jlimit (0, tracks.getNumChildren() - 1, index);
+}
+
 double TimelineComponent::snapToGrid (double seconds) const
 {
     const auto beatSeconds = (60.0 / tempoBpm) * (4.0 / timeSigDenominator);
@@ -615,13 +629,36 @@ void TimelineComponent::paintLanes (juce::Graphics& g)
 
         for (int clipIndex = 0; clipIndex < clips.getNumChildren(); ++clipIndex)
         {
-            const auto clip = clips.getChild (clipIndex);
-            const auto dragging = clipDragActive && draggedClip.track == i
-                               && draggedClip.clip == clipIndex;
-            const auto start = dragging ? clipDragPreviewStart
-                                        : static_cast<double> (clip.getProperty ("start", 0.0));
+            // The clip under the pointer is drawn last, on whichever row it is
+            // being dragged towards, so it is never hidden behind the lane it
+            // is leaving.
+            if (clipDragActive && draggedClip.track == i && draggedClip.clip == clipIndex)
+                continue;
 
-            paintClip (g, clip, row, muted, start, dragging);
+            const auto clip = clips.getChild (clipIndex);
+            paintClip (g, clip, row, muted,
+                       static_cast<double> (clip.getProperty ("start", 0.0)), false);
+        }
+    }
+
+    // The dragged clip, drawn over everything on the row it will land on.
+    if (clipDragActive && draggedClip.isValid()
+        && juce::isPositiveAndBelow (clipDragTargetTrack, tracks.getNumChildren()))
+    {
+        const auto sourceClips = tracks.getChild (draggedClip.track).getChildWithName ("CLIPS");
+        const auto clip = sourceClips.getChild (draggedClip.clip);
+
+        if (clip.isValid())
+        {
+            const auto targetRow = rowBounds (clipDragTargetTrack, lanes);
+
+            // Ghost on the target lane so the drop point reads even before the
+            // clip gets there.
+            g.setColour (colours::accent.withAlpha (0.10f));
+            g.fillRect (targetRow);
+
+            paintClip (g, clip, targetRow, isTrackMuted (clipDragTargetTrack),
+                       clipDragPreviewStart, true);
         }
     }
 
@@ -787,6 +824,7 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
         clipDragGrabTime = xToTime (event.x);
         clipDragOriginalStart = clipStartOf (hit.track, hit.clip);
         clipDragPreviewStart = clipDragOriginalStart;
+        clipDragTargetTrack = hit.track;
         selectedTrackIndex = hit.track;
 
         if (onTrackSelected)
@@ -811,6 +849,13 @@ void TimelineComponent::mouseDrag (const juce::MouseEvent& event)
         // arrangement of these two in a DAW.
         clipDragPreviewStart = event.mods.isAltDown() ? raw
                                                       : juce::jmax (0.0, snapToGrid (raw));
+
+        // Vertical travel picks the track it will land on. Tracks are discrete,
+        // so this snaps by nature - there is no free-placement equivalent.
+        const auto row = laneTrackIndexAt (event.getPosition());
+        if (row >= 0)
+            clipDragTargetTrack = row;
+
         repaint();
         return;
     }
@@ -826,15 +871,18 @@ void TimelineComponent::mouseUp (const juce::MouseEvent&)
 
     const auto moved = draggedClip;
     const auto newStart = clipDragPreviewStart;
-    const auto changed = ! juce::approximatelyEqual (newStart, clipDragOriginalStart);
+    const auto targetTrack = clipDragTargetTrack;
+    const auto changed = ! juce::approximatelyEqual (newStart, clipDragOriginalStart)
+                      || targetTrack != moved.track;
 
     clipDragActive = false;
     draggedClip = {};
+    clipDragTargetTrack = -1;
     setMouseCursor (juce::MouseCursor::NormalCursor);
     repaint();
 
     if (changed && onClipMoved)
-        onClipMoved (moved.track, moved.clip, newStart);
+        onClipMoved (moved.track, moved.clip, targetTrack, newStart);
 }
 
 void TimelineComponent::mouseMove (const juce::MouseEvent& event)

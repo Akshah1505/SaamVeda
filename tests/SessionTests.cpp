@@ -176,6 +176,53 @@ TEST_CASE ("clips move along the timeline and the move is undoable", "[core][cli
     REQUIRE (session.clipStart (clipId) == 0.0);
 }
 
+TEST_CASE ("clips move between tracks and the move is undoable", "[core][clip][undo]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    AddTrackCommand addFirst ("audio", "One");
+    AddTrackCommand addSecond ("audio", "Two");
+    REQUIRE (bus.dispatch (addFirst));
+    REQUIRE (bus.dispatch (addSecond));
+
+    const auto clip = session.addAudioClip (addFirst.id(), juce::File ("D:/Music/take.wav"), 9.0);
+    const auto clipId = clip.getProperty (Session::idProperty()).toString();
+    REQUIRE (session.trackIdContainingClip (clipId) == addFirst.id());
+
+    // A diagonal drag is one gesture: new track and new position together, so
+    // one Ctrl+Z puts both back.
+    MoveClipCommand move (clipId, 4.0, addSecond.id());
+    REQUIRE (bus.dispatch (move));
+    REQUIRE (session.trackIdContainingClip (clipId) == addSecond.id());
+    REQUIRE (session.clipStart (clipId) == 4.0);
+    REQUIRE (session.clipsOf (session.trackWithId (addFirst.id())).getNumChildren() == 0);
+    REQUIRE (session.clipsOf (session.trackWithId (addSecond.id())).getNumChildren() == 1);
+
+    REQUIRE (bus.undo());
+    REQUIRE (session.trackIdContainingClip (clipId) == addFirst.id());
+    REQUIRE (session.clipStart (clipId) == 0.0);
+
+    // The clip keeps its identity across the move - it is the same node, not a
+    // copy, so its length and source survive.
+    REQUIRE (static_cast<double> (session.clipWithId (clipId).getProperty ("length")) == 9.0);
+}
+
+TEST_CASE ("moving a clip onto the track it is already on is not an edit", "[core][clip]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    AddTrackCommand add ("audio", "One");
+    REQUIRE (bus.dispatch (add));
+    const auto clip = session.addAudioClip (add.id(), juce::File ("D:/Music/a.wav"), 3.0);
+    const auto clipId = clip.getProperty (Session::idProperty()).toString();
+
+    REQUIRE_FALSE (session.moveClipToTrack (clipId, add.id()));
+    REQUIRE_FALSE (session.moveClipToTrack (clipId, "not-a-real-track"));
+    REQUIRE (session.trackIdContainingClip (clipId) == add.id());
+}
+
 TEST_CASE ("clip position survives serialisation", "[core][clip][persistence]")
 {
     Session source;

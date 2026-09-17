@@ -188,9 +188,10 @@ MainComponent::MainComponent()
     {
         renameTrack (index, name);
     };
-    playlist.timeline().onClipMoved = [this] (int trackIndex, int clipIndex, double start)
+    playlist.timeline().onClipMoved = [this] (int trackIndex, int clipIndex, int targetTrack,
+                                              double start)
     {
-        moveClip (trackIndex, clipIndex, start);
+        moveClip (trackIndex, clipIndex, targetTrack, start);
     };
 
     playlist.timeline().setWaveformCache (&waveformCache);
@@ -446,7 +447,8 @@ void MainComponent::renameTrack (int trackIndex, const juce::String& newName)
     refreshTrackSummary();
 }
 
-void MainComponent::moveClip (int trackIndex, int clipIndex, double newStartSeconds)
+void MainComponent::moveClip (int trackIndex, int clipIndex, int targetTrackIndex,
+                              double newStartSeconds)
 {
     const auto track = session.tracks().getChild (trackIndex);
     const auto clip = session.clipsOf (track).getChild (clipIndex);
@@ -456,12 +458,25 @@ void MainComponent::moveClip (int trackIndex, int clipIndex, double newStartSeco
     const auto clipId = clip.getProperty (core::Session::idProperty()).toString();
     const auto clipName = clip.getProperty ("name").toString();
 
-    MoveClipCommand command (clipId, newStartSeconds);
+    const auto targetTrack = session.tracks().getChild (targetTrackIndex);
+    const auto changingTrack = targetTrackIndex != trackIndex && targetTrack.isValid();
+    const auto targetTrackId = changingTrack
+        ? targetTrack.getProperty (core::Session::idProperty()).toString() : juce::String();
+
+    MoveClipCommand command (clipId, newStartSeconds, targetTrackId);
     if (! commands.dispatch (command))
         return;
 
+    if (changingTrack)
+        engineController.moveClipToTrack (clipId, targetTrackId);
+
     engineController.setClipStart (clipId, session.clipStart (clipId));
-    setStatus ("Moved " + clipName + " to " + juce::String (session.clipStart (clipId), 2) + " s.");
+
+    const auto where = juce::String (session.clipStart (clipId), 2) + " s";
+    setStatus (changingTrack
+                   ? "Moved " + clipName + " to " + targetTrack.getProperty ("name").toString()
+                         + " at " + where + "."
+                   : "Moved " + clipName + " to " + where + ".");
     refreshTrackSummary();
 }
 

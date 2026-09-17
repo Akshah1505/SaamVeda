@@ -72,7 +72,7 @@ private:
     void toggleTrackMute (int trackIndex);
     void toggleTrackSolo (int trackIndex);
     void renameTrack (int trackIndex, const juce::String& newName);
-    void moveClip (int trackIndex, int clipIndex, double newStartSeconds);
+    void moveClip (int trackIndex, int clipIndex, int targetTrackIndex, double newStartSeconds);
     void importAudio();
     void showTapTempo();
     void showShortcuts();

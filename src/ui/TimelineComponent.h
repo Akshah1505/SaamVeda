@@ -34,8 +34,11 @@ public:
     std::function<void (int)> onTrackSoloToggled;
     std::function<void (int, juce::String)> onTrackRenamed;
 
-    /** Fired once when a clip drag finishes, not while it is in flight. */
-    std::function<void (int trackIndex, int clipIndex, double newStartSeconds)> onClipMoved;
+    /** Fired once when a clip drag finishes, not while it is in flight.
+        targetTrackIndex may differ from trackIndex when it was dragged
+        vertically onto another track. */
+    std::function<void (int trackIndex, int clipIndex, int targetTrackIndex,
+                        double newStartSeconds)> onClipMoved;
 
     void setWaveformCache (services::WaveformCache* cache) { waveformCache = cache; }
 
@@ -99,6 +102,9 @@ private:
     ClipRef clipAt (juce::Point<int> position) const;
     double clipStartOf (int trackIndex, int clipIndex) const;
 
+    /** Track row under a point in the lane area, clamped to a real track. */
+    int laneTrackIndexAt (juce::Point<int> position) const;
+
     /** Rounds to the nearest beat. Holding Alt during a drag bypasses it. */
     double snapToGrid (double seconds) const;
 
@@ -141,6 +147,7 @@ private:
     double clipDragGrabTime = 0.0;
     double clipDragOriginalStart = 0.0;
     double clipDragPreviewStart = 0.0;
+    int clipDragTargetTrack = -1;
 
     juce::ValueTree tracks;
     services::WaveformCache* waveformCache = nullptr;
