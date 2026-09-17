@@ -292,7 +292,7 @@ A single development machine holding all work.
 > enabled device with no instance attached — **that one allocates in Release too**, so this was never
 > purely a Debug artifact.
 >
-> Fixed in [`src/engine/WaveDeviceLayout.h`](../src/engine/WaveDeviceLayout.h) by implementing
+> Fixed in [`src/engine/StudioBehaviour.h`](../src/engine/StudioBehaviour.h) by implementing
 > `EngineBehaviour::describeWaveDevices`, which builds the layout from the device's *active*
 > channels rather than its named ones. tracktion treats a host-supplied layout as authoritative and
 > skips both its channel-coverage pass and persisting the layout to settings, so there is no stale

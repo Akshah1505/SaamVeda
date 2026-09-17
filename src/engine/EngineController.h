@@ -4,7 +4,7 @@
 
 #include "../core/Session.h"
 #include "RealtimeSanityCheck.h"
-#include "WaveDeviceLayout.h"
+#include "StudioBehaviour.h"
 
 namespace saamveda::engine
 {
@@ -133,7 +133,7 @@ private:
     // The behaviour has to be supplied at construction: it decides the wave
     // device layout, and that is read the first time a device opens.
     tracktion::engine::Engine engine { "SaamVeda Studio", nullptr,
-                                       std::make_unique<ActiveChannelWaveDeviceLayout>() };
+                                       std::make_unique<StudioBehaviour>() };
     std::unique_ptr<tracktion::engine::Edit> edit;
     RealtimeSanityCheck realtimeCheck;
     tracktion::engine::LevelMeasurer::Client inputLevelClient;

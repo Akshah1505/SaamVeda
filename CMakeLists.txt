@@ -79,5 +79,42 @@ if (MSVC)
     target_compile_options(SaamVedaStudio PRIVATE /W4)
 endif()
 
+# Console harness for the Phase 4 acceptance criteria that need a real audio
+# device and real elapsed time - a 30-minute recording and record alignment.
+# Not part of `ctest`: it takes half an hour and it needs an input signal.
+juce_add_console_app(SaamVedaRecordingCheck
+    PRODUCT_NAME "SaamVedaRecordingCheck")
+
+target_sources(SaamVedaRecordingCheck PRIVATE
+    tools/recording-check/RecordingCheck.cpp
+    src/core/Session.cpp
+    src/engine/EngineController.cpp
+    src/engine/RealtimeSanityCheck.cpp)
+
+target_include_directories(SaamVedaRecordingCheck PRIVATE src)
+
+target_compile_definitions(SaamVedaRecordingCheck PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_STRICT_REFCOUNTEDPOINTER=1
+    TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
+    # The harness has no event loop of its own, so it drives the message queue
+    # by hand while it waits. The application does not, and must not, do this.
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    SAAMVEDA_REALTIME_CHECKS=$<IF:$<CONFIG:Debug>,1,0>)
+
+target_link_libraries(SaamVedaRecordingCheck PRIVATE
+    tracktion::tracktion_core
+    tracktion::tracktion_engine
+    tracktion::tracktion_graph
+    juce::juce_audio_devices
+    juce::juce_audio_utils
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+
+if (MSVC)
+    target_link_libraries(SaamVedaRecordingCheck PRIVATE $<$<CONFIG:Debug>:dbghelp>)
+endif()
+
 enable_testing()
 add_subdirectory(tests)
