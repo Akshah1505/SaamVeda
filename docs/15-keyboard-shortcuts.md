@@ -28,6 +28,7 @@ Bindings are declared next to the actions they trigger, in `MainComponent::getCo
 | `Enter` | Stop and return to start | — |
 | `L` | Enable looping | same |
 | `M` | Metronome on/off | — |
+| `R` | Record onto armed tracks | same |
 | `Home` | Skip to start | same |
 | `End` | Skip to end | same |
 | `←` / `→` | Seek 1 second | same |
@@ -75,6 +76,7 @@ Bindings are declared next to the actions they trigger, in `MainComponent::getCo
 | `Ctrl`+wheel | Zoom around the pointer |
 | Click a track's LED | Mute / unmute that track |
 | Click a track's **S** | Solo / unsolo that track |
+| Click a track's **R** | Arm / disarm it for recording |
 | Double-click a track name | Rename it inline |
 | Drag the middle of the top bar | Scroll |
 | Drag either end of the top bar | Zoom, anchoring the opposite end |
@@ -115,5 +117,5 @@ silent gap.
 ## 6. Not yet bound
 
 Reserved for the phases that introduce them, so nothing here gets claimed by a lesser action:
-`R` record (Phase 4), `Ctrl+S` save and `Ctrl+O` open (Phase 12), `Ctrl+E` export (Phase 12),
+`Ctrl+S` save and `Ctrl+O` open (Phase 12), `Ctrl+E` export (Phase 12),
 `Ctrl+X/C/V` clip clipboard and `Ctrl+I` split (Phase 6), `Ctrl+A` select all (Phase 6).

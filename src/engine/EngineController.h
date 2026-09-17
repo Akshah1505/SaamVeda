@@ -16,11 +16,17 @@ namespace saamveda::engine
     cheap: restoring a track no longer means tearing the Edit down and decoding
     every file on disk again.
 */
-class EngineController
+class EngineController : private tracktion::engine::TransportControl::Listener
 {
 public:
     EngineController();
-    ~EngineController();
+    ~EngineController() override;
+
+    /** Fired on the message thread when a recording produces a clip. The engine
+        creates it; the session has to be told so the clip is not swept away by
+        the next synchronise. */
+    std::function<void (juce::String trackId, juce::File file,
+                        double startSeconds, double lengthSeconds)> onClipRecorded;
 
     // Transport
     void play();
@@ -59,6 +65,38 @@ public:
     /** Reparents a clip onto another track without re-reading its file. */
     bool moveClipToTrack (const juce::String& clipId, const juce::String& targetTrackId);
 
+    //==============================================================================
+    // Recording
+
+    /** Names of the wave inputs the device manager currently exposes. */
+    juce::StringArray inputDeviceNames() const;
+
+    /** Arms a track: points the first available wave input at it and enables
+        recording. Returns false when there is no usable input. */
+    bool setTrackArmed (const juce::String& trackId, bool armed);
+    bool isTrackArmed (const juce::String& trackId) const;
+    int armedTrackCount() const;
+
+    void setInputMonitoring (bool enabled);
+    bool isInputMonitoring() const;
+
+    /** Peak input level in dB, or -100 when there is no input. */
+    float inputLevelDb();
+
+    /** Tags the clip tracktion just recorded with the session id the host gave
+        it, so synchronise treats it as a clip it knows rather than a stray. */
+    bool adoptRecordedClip (const juce::String& trackId, const juce::File& file,
+                            const juce::String& clipId);
+
+    void startRecording();
+    void stopRecording (bool discardRecordings);
+    bool isRecording() const;
+
+    /** Bars of count-in before recording starts. 0 disables it. */
+    void setCountInBars (int bars);
+    int countInBars() const;
+
+    //==============================================================================
     // Structure, mirrored from the session by id
     bool ensureTrack (const juce::String& trackId);
     bool removeTrack (const juce::String& trackId);
@@ -90,12 +128,21 @@ private:
     tracktion::engine::Engine engine { "SaamVeda Studio" };
     std::unique_ptr<tracktion::engine::Edit> edit;
     RealtimeSanityCheck realtimeCheck;
+    tracktion::engine::LevelMeasurer::Client inputLevelClient;
+    tracktion::engine::LevelMeasurer* attachedLevelMeasurer = nullptr;
 
     static const juce::Identifier sessionTrackIdProperty;
     static const juce::Identifier sessionClipIdProperty;
     static const juce::Identifier sourceTempoProperty;
     static const juce::Identifier offsetProperty;
     static const juce::Identifier startProperty;
+
+    void recordingFinished (tracktion::engine::InputDeviceInstance&,
+                            tracktion::engine::EditItemID,
+                            const juce::ReferenceCountedArray<tracktion::engine::Clip>&) override;
+
+    tracktion::engine::InputDeviceInstance* firstWaveInput() const;
+    void attachLevelClient();
 
     tracktion::engine::AudioTrack* trackForId (const juce::String& trackId) const;
     tracktion::engine::Clip* clipForId (tracktion::engine::AudioTrack&,

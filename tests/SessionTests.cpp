@@ -3,6 +3,7 @@
 
 #include "../src/app/CommandBus.h"
 
+using saamveda::app::AddRecordedClipCommand;
 using saamveda::app::AddTrackCommand;
 using saamveda::app::ApplyDetectedTempoCommand;
 using saamveda::app::CommandBus;
@@ -12,6 +13,7 @@ using saamveda::app::RemoveTrackCommand;
 using saamveda::app::RenameTrackCommand;
 using saamveda::app::SetTapTempoCommand;
 using saamveda::app::SetTempoCommand;
+using saamveda::app::SetTrackArmedCommand;
 using saamveda::app::SetTrackMuteCommand;
 using saamveda::app::SetTrackSoloCommand;
 using saamveda::app::SetTimeSignatureCommand;
@@ -332,6 +334,66 @@ TEST_CASE ("track solo toggles independently of mute", "[core][solo]")
 
     REQUIRE (bus.undo());
     REQUIRE_FALSE (session.hasAnySoloedTrack());
+}
+
+TEST_CASE ("record arm is per track and undoable", "[core][record]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    AddTrackCommand addFirst ("audio", "One");
+    AddTrackCommand addSecond ("audio", "Two");
+    REQUIRE (bus.dispatch (addFirst));
+    REQUIRE (bus.dispatch (addSecond));
+
+    REQUIRE_FALSE (session.isTrackArmed (addFirst.id()));
+
+    SetTrackArmedCommand arm (addFirst.id(), true);
+    REQUIRE (bus.dispatch (arm));
+    REQUIRE (session.isTrackArmed (addFirst.id()));
+    REQUIRE_FALSE (session.isTrackArmed (addSecond.id()));
+
+    // Arm, mute and solo are independent flags on the same track.
+    SetTrackMuteCommand mute (addFirst.id(), true);
+    REQUIRE (bus.dispatch (mute));
+    REQUIRE (session.isTrackArmed (addFirst.id()));
+
+    SetTrackArmedCommand again (addFirst.id(), true);
+    REQUIRE_FALSE (bus.dispatch (again));
+
+    REQUIRE (bus.undo());
+    REQUIRE (bus.undo());
+    REQUIRE_FALSE (session.isTrackArmed (addFirst.id()));
+}
+
+TEST_CASE ("a recorded take is adopted into the session", "[core][record]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    AddTrackCommand add ("audio", "Vocals");
+    REQUIRE (bus.dispatch (add));
+
+    SetTempoCommand tempo (96.0);
+    REQUIRE (bus.dispatch (tempo));
+
+    // The engine creates the take and reports it; the session has to adopt it
+    // or the next synchronise deletes it as a clip it does not recognise.
+    AddRecordedClipCommand recorded (add.id(), juce::File ("D:/Music/take_001.wav"), 4.0, 7.5);
+    REQUIRE (bus.dispatch (recorded));
+
+    const auto clipId = recorded.createdClipId();
+    REQUIRE (clipId.isNotEmpty());
+    REQUIRE (session.clipCount() == 1);
+    REQUIRE (session.trackIdContainingClip (clipId) == add.id());
+    REQUIRE (session.clipStart (clipId) == 4.0);
+    REQUIRE (static_cast<double> (session.clipWithId (clipId).getProperty ("length")) == 7.5);
+
+    // Recorded at the playing tempo, so it must not be stretched against it.
+    REQUIRE (session.clipSourceTempo (clipId) == 96.0);
+
+    REQUIRE (bus.undo());
+    REQUIRE (session.clipCount() == 0);
 }
 
 TEST_CASE ("mute survives serialisation", "[core][mute][persistence]")

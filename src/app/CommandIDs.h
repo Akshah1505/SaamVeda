@@ -22,6 +22,7 @@ namespace CommandIDs
         toggleLoop,
         loopPlay,
         toggleMetronome,
+        toggleRecord,
         skipToStart,
         skipToEnd,
         shortSeekBack,

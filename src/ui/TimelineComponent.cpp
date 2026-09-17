@@ -107,13 +107,19 @@ juce::Rectangle<int> TimelineComponent::soloButtonBounds (int trackIndex) const
     return juce::Rectangle<int> (20, 20).withCentre ({ mute.getX() - 12, mute.getCentreY() });
 }
 
+juce::Rectangle<int> TimelineComponent::armButtonBounds (int trackIndex) const
+{
+    const auto solo = soloButtonBounds (trackIndex);
+    return juce::Rectangle<int> (20, 20).withCentre ({ solo.getX() - 12, solo.getCentreY() });
+}
+
 juce::Rectangle<int> TimelineComponent::nameBounds (int trackIndex) const
 {
     // Nearly the full row height: this is a double-click target, and a thin
     // band around the text is easy to miss.
     const auto row = rowBounds (trackIndex, headerArea());
     return row.withTrimmedLeft (10)
-              .withTrimmedRight (row.getRight() - soloButtonBounds (trackIndex).getX() + 4)
+              .withTrimmedRight (row.getRight() - armButtonBounds (trackIndex).getX() + 4)
               .reduced (0, 6);
 }
 
@@ -204,6 +210,12 @@ bool TimelineComponent::isTrackSoloed (int trackIndex) const
 {
     return juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren())
         && static_cast<bool> (tracks.getChild (trackIndex).getProperty ("solo", false));
+}
+
+bool TimelineComponent::isTrackArmed (int trackIndex) const
+{
+    return juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren())
+        && static_cast<bool> (tracks.getChild (trackIndex).getProperty ("armed", false));
 }
 
 void TimelineComponent::beginRename (int trackIndex)
@@ -505,6 +517,22 @@ void TimelineComponent::paintHeaders (juce::Graphics& g)
             g.drawText (name, nameBounds (i), juce::Justification::centredLeft, true);
         }
 
+        // Record-arm, left of solo.
+        if (isRealTrack)
+        {
+            const auto arm = armButtonBounds (i).reduced (2);
+            const auto isArmed = isTrackArmed (i);
+
+            g.setColour (isArmed ? colours::armed
+                                 : (i == hoveredArmTrack ? colours::headerAlternate.brighter (0.3f)
+                                                         : colours::ledOff));
+            g.fillRoundedRectangle (arm.toFloat(), 3.0f);
+
+            g.setColour (isArmed ? colours::textBright : colours::textDim);
+            g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+            g.drawText ("R", arm, juce::Justification::centred);
+        }
+
         // Solo button, left of the mute LED.
         if (isRealTrack)
         {
@@ -802,6 +830,14 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
 
                 return;
             }
+
+            if (armButtonBounds (index).contains (event.getPosition()))
+            {
+                if (onTrackArmToggled)
+                    onTrackArmToggled (index);
+
+                return;
+            }
         }
 
         selectedTrackIndex = juce::isPositiveAndBelow (index, tracks.getNumChildren()) ? index : -1;
@@ -898,29 +934,34 @@ void TimelineComponent::mouseMove (const juce::MouseEvent& event)
 
     const auto overMute = isReal && muteButtonBounds (index).contains (event.getPosition());
     const auto overSolo = isReal && soloButtonBounds (index).contains (event.getPosition());
+    const auto overArm = isReal && armButtonBounds (index).contains (event.getPosition());
     const auto overName = isReal && nameBounds (index).contains (event.getPosition());
 
     const auto mute = overMute ? index : -1;
     const auto solo = overSolo ? index : -1;
+    const auto arm = overArm ? index : -1;
 
-    if (mute == hoveredMuteTrack && solo == hoveredSoloTrack)
+    if (mute == hoveredMuteTrack && solo == hoveredSoloTrack && arm == hoveredArmTrack)
         return;
 
     hoveredMuteTrack = mute;
     hoveredSoloTrack = solo;
-    setMouseCursor (overMute || overSolo ? juce::MouseCursor::PointingHandCursor
-                                         : (overName ? juce::MouseCursor::IBeamCursor
-                                                     : juce::MouseCursor::NormalCursor));
+    hoveredArmTrack = arm;
+    setMouseCursor (overMute || overSolo || overArm
+                        ? juce::MouseCursor::PointingHandCursor
+                        : (overName ? juce::MouseCursor::IBeamCursor
+                                    : juce::MouseCursor::NormalCursor));
     repaint();
 }
 
 void TimelineComponent::mouseExit (const juce::MouseEvent&)
 {
-    if (hoveredMuteTrack < 0 && hoveredSoloTrack < 0)
+    if (hoveredMuteTrack < 0 && hoveredSoloTrack < 0 && hoveredArmTrack < 0)
         return;
 
     hoveredMuteTrack = -1;
     hoveredSoloTrack = -1;
+    hoveredArmTrack = -1;
     setMouseCursor (juce::MouseCursor::NormalCursor);
     repaint();
 }

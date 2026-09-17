@@ -33,10 +33,8 @@ TransportBar::TransportBar()
     stopButton.onClick   = [this] { if (onStop) onStop(); };
     recordButton.onClick = [this] { if (onRecord) onRecord(); };
 
-    // Recording arrives in Phase 4; the control is present so the row's shape
-    // does not shift when it starts working.
-    recordButton.setEnabled (false);
-    recordButton.setTooltip ("Recording arrives in Phase 4");
+    recordButton.setClickingTogglesState (false);
+    recordButton.setTooltip ("Record onto every armed track (R)");
 
     for (auto* button : { &songModeButton, &playButton, &stopButton, &recordButton })
         styleToolButton (*button);
@@ -137,6 +135,34 @@ void TransportBar::setPosition (double seconds, int bar, int beat, int tick)
                           juce::dontSendNotification);
 }
 
+void TransportBar::setRecording (bool isRecording, int armedTracks)
+{
+    recording = isRecording;
+
+    // Red only when it will actually do something: greyed with nothing armed
+    // says "arm a track first" more clearly than a button that looks live and
+    // then refuses.
+    recordButton.setEnabled (armedTracks > 0 || isRecording);
+    recordButton.setColour (juce::TextButton::buttonColourId,
+                            isRecording ? juce::Colour (0xffc0392b)
+                                        : juce::Colour (0xff5a2f33));
+    recordButton.setButtonText (isRecording ? "REC" : "Rec");
+    repaint();
+}
+
+void TransportBar::setInputLevelDb (float dB)
+{
+    // Decay rather than snap, so a meter sampled at 30 Hz still shows peaks the
+    // eye can catch.
+    const auto decayed = juce::jmax (dB, inputLevelDb - 3.0f);
+
+    if (! juce::approximatelyEqual (decayed, inputLevelDb))
+    {
+        inputLevelDb = juce::jlimit (-100.0f, 6.0f, decayed);
+        repaint (meterBounds);
+    }
+}
+
 void TransportBar::setAudioLoad (double proportion)
 {
     // Audio-callback load, not process CPU: it is the number that predicts a
@@ -163,6 +189,29 @@ void TransportBar::paint (juce::Graphics& g)
         g.fillRoundedRectangle (readout.toFloat(), 3.0f);
     }
 
+    // Input level meter.
+    if (! meterBounds.isEmpty())
+    {
+        g.setColour (colours::windowBackground);
+        g.fillRoundedRectangle (meterBounds.toFloat(), 2.0f);
+
+        const auto proportion = juce::jlimit (0.0f, 1.0f, (inputLevelDb + 60.0f) / 66.0f);
+        if (proportion > 0.0f)
+        {
+            auto filled = meterBounds.reduced (2).toFloat();
+            filled = filled.withWidth (filled.getWidth() * proportion);
+
+            g.setColour (inputLevelDb > -1.0f ? colours::muted
+                                              : (inputLevelDb > -12.0f ? colours::soloed
+                                                                       : colours::ledOn));
+            g.fillRoundedRectangle (filled, 1.5f);
+        }
+
+        g.setColour (colours::textDim);
+        g.setFont (juce::Font (juce::FontOptions (8.0f)));
+        g.drawText ("IN", meterBounds.withTrimmedLeft (3), juce::Justification::centredLeft);
+    }
+
     g.setColour (colours::outline);
     g.drawHorizontalLine (getHeight() - 1, 0.0f, static_cast<float> (getWidth()));
 }
@@ -177,7 +226,9 @@ void TransportBar::resized()
     playButton.setBounds (area.removeFromLeft (58).reduced (1));
     stopButton.setBounds (area.removeFromLeft (58).reduced (1));
     recordButton.setBounds (area.removeFromLeft (48).reduced (1));
-    area.removeFromLeft (10);
+    area.removeFromLeft (6);
+    meterBounds = area.removeFromLeft (meterWidth - 6).reduced (2, 8);
+    area.removeFromLeft (6);
     tempoSlider.setBounds (area.removeFromLeft (118).reduced (1));
 
     // Everything after the tempo is optional, in priority order. The row is

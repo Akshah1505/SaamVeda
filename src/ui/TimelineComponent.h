@@ -32,6 +32,7 @@ public:
     std::function<void (int)> onTrackSelected;
     std::function<void (int)> onTrackMuteToggled;
     std::function<void (int)> onTrackSoloToggled;
+    std::function<void (int)> onTrackArmToggled;
     std::function<void (int, juce::String)> onTrackRenamed;
 
     /** Fired once when a clip drag finishes, not while it is in flight.
@@ -89,6 +90,7 @@ private:
         control and the region that responds to a click cannot drift apart. */
     juce::Rectangle<int> muteButtonBounds (int trackIndex) const;
     juce::Rectangle<int> soloButtonBounds (int trackIndex) const;
+    juce::Rectangle<int> armButtonBounds (int trackIndex) const;
     juce::Rectangle<int> nameBounds (int trackIndex) const;
 
     /** Identifies a clip by its position in the session tree. */
@@ -111,6 +113,7 @@ private:
     int trackIndexAt (juce::Point<int> position) const;
     bool isTrackMuted (int trackIndex) const;
     bool isTrackSoloed (int trackIndex) const;
+    bool isTrackArmed (int trackIndex) const;
     void beginRename (int trackIndex);
     void commitRename();
     int rowCount() const;
@@ -137,6 +140,7 @@ private:
     int selectedTrackIndex = -1;
     int hoveredMuteTrack = -1;
     int hoveredSoloTrack = -1;
+    int hoveredArmTrack = -1;
     int renamingTrackIndex = -1;
     bool followPlayhead = true;
 

@@ -26,7 +26,10 @@ namespace
 
 EngineController::EngineController()
 {
-    engine.getDeviceManager().initialise (0, 2);
+    // Two input channels as well as two output: a DAW that cannot see an input
+    // cannot arm a track. The manifest already declares microphone use, and the
+    // inputs can be switched off again in Audio Settings.
+    engine.getDeviceManager().initialise (2, 2);
     edit = te::Edit::createSingleTrackEdit (engine, te::Edit::EditRole::forEditing);
 
     if (edit == nullptr)
@@ -43,11 +46,26 @@ EngineController::EngineController()
     updateLoopRange();
 
     realtimeCheck.attachTo (audioDeviceManager());
+    edit->getTransport().addListener (this);
+
+    // Allocating the playback context is what creates the input instances that
+    // arming works through, so do it up front rather than on the first arm.
+    edit->getTransport().ensureContextAllocated();
+    attachLevelClient();
 }
 
 EngineController::~EngineController()
 {
     realtimeCheck.detach();
+
+    if (attachedLevelMeasurer != nullptr)
+    {
+        attachedLevelMeasurer->removeClient (inputLevelClient);
+        attachedLevelMeasurer = nullptr;
+    }
+
+    if (edit != nullptr)
+        edit->getTransport().removeListener (this);
 
     if (edit != nullptr)
     {
@@ -351,6 +369,235 @@ bool EngineController::moveClipToTrack (const juce::String& clipId,
 
     updateLoopRange();
     return moved;
+}
+
+//==============================================================================
+te::InputDeviceInstance* EngineController::firstWaveInput() const
+{
+    auto* context = edit->getTransport().getCurrentPlaybackContext();
+    if (context == nullptr)
+        return nullptr;
+
+    for (auto* instance : context->getAllInputs())
+        if (instance != nullptr
+            && instance->getInputDevice().getDeviceType() == te::InputDevice::waveDevice
+            && instance->getInputDevice().isEnabled())
+            return instance;
+
+    return nullptr;
+}
+
+void EngineController::attachLevelClient()
+{
+    auto* instance = firstWaveInput();
+    auto* measurer = instance != nullptr ? &instance->getInputDevice().levelMeasurer : nullptr;
+
+    if (measurer == attachedLevelMeasurer)
+        return;
+
+    if (attachedLevelMeasurer != nullptr)
+        attachedLevelMeasurer->removeClient (inputLevelClient);
+
+    attachedLevelMeasurer = measurer;
+
+    if (attachedLevelMeasurer != nullptr)
+        attachedLevelMeasurer->addClient (inputLevelClient);
+}
+
+juce::StringArray EngineController::inputDeviceNames() const
+{
+    juce::StringArray names;
+
+    for (auto* device : engine.getDeviceManager().getWaveInputDevices())
+        if (device != nullptr && device->isEnabled())
+            names.add (device->getName());
+
+    return names;
+}
+
+bool EngineController::setTrackArmed (const juce::String& trackId, bool armed)
+{
+    auto* track = trackForId (trackId);
+    if (track == nullptr)
+        return false;
+
+    edit->getTransport().ensureContextAllocated();
+    attachLevelClient();
+
+    auto* instance = firstWaveInput();
+    if (instance == nullptr)
+        return false;
+
+    if (armed)
+    {
+        // The input has to be pointed at the track before recording can be
+        // enabled for it; setTarget is what creates that connection.
+        if (! instance->setTarget (track->itemID, true, nullptr).has_value())
+            return false;
+    }
+
+    instance->setRecordingEnabled (track->itemID, armed);
+
+    if (! armed)
+        instance->removeTarget (track->itemID, nullptr);
+
+    return true;
+}
+
+bool EngineController::isTrackArmed (const juce::String& trackId) const
+{
+    auto* track = trackForId (trackId);
+    auto* instance = firstWaveInput();
+
+    return track != nullptr && instance != nullptr
+        && instance->isRecordingEnabled (track->itemID);
+}
+
+int EngineController::armedTrackCount() const
+{
+    auto* instance = firstWaveInput();
+    if (instance == nullptr)
+        return 0;
+
+    auto count = 0;
+    for (auto* track : te::getAudioTracks (*edit))
+        if (instance->isRecordingEnabled (track->itemID))
+            ++count;
+
+    return count;
+}
+
+void EngineController::setInputMonitoring (bool enabled)
+{
+    if (auto* instance = firstWaveInput())
+        instance->getInputDevice().setMonitorMode (
+            enabled ? te::InputDevice::MonitorMode::on
+                    : te::InputDevice::MonitorMode::automatic);
+}
+
+bool EngineController::isInputMonitoring() const
+{
+    if (auto* instance = firstWaveInput())
+        return instance->getInputDevice().getMonitorMode() == te::InputDevice::MonitorMode::on;
+
+    return false;
+}
+
+float EngineController::inputLevelDb()
+{
+    attachLevelClient();
+
+    if (attachedLevelMeasurer == nullptr)
+        return -100.0f;
+
+    auto peak = -100.0f;
+    const auto channels = juce::jmax (1, inputLevelClient.getNumChannelsUsed());
+
+    for (int channel = 0; channel < channels; ++channel)
+        peak = juce::jmax (peak, inputLevelClient.getAndClearAudioLevel (channel).dB);
+
+    return peak;
+}
+
+bool EngineController::adoptRecordedClip (const juce::String& trackId, const juce::File& file,
+                                          const juce::String& clipId)
+{
+    auto* track = trackForId (trackId);
+    if (track == nullptr || clipId.isEmpty())
+        return false;
+
+    for (auto* clip : track->getClips())
+    {
+        auto* wave = dynamic_cast<te::WaveAudioClip*> (clip);
+        if (wave == nullptr)
+            continue;
+
+        // Match on the file and on not having been claimed yet: a second take
+        // onto the same track must not steal the first take's id.
+        if (wave->getSourceFileReference().getFile() != file
+            || wave->state.getProperty (sessionClipIdProperty).toString().isNotEmpty())
+            continue;
+
+        wave->state.setProperty (sessionClipIdProperty, clipId, nullptr);
+        wave->state.setProperty (sourceTempoProperty, tempo(), nullptr);
+        wave->state.setProperty (offsetProperty, 0.0, nullptr);
+        wave->state.setProperty (startProperty, wave->getPosition().getStart().inSeconds(), nullptr);
+
+        updateLoopRange();
+        return true;
+    }
+
+    return false;
+}
+
+void EngineController::startRecording()
+{
+    edit->getTransport().ensureContextAllocated();
+
+    // allowRecordingIfNoInputsArmed stays false: recording with nothing armed
+    // would look like it worked and produce nothing.
+    edit->getTransport().record (false, false);
+}
+
+void EngineController::stopRecording (bool discardRecordings)
+{
+    edit->getTransport().stopRecording (discardRecordings);
+    edit->getTransport().stop (false, false);
+}
+
+bool EngineController::isRecording() const
+{
+    return edit->getTransport().isRecording();
+}
+
+void EngineController::setCountInBars (int bars)
+{
+    edit->setCountInMode (bars >= 2 ? te::Edit::CountIn::twoBar
+                                    : (bars == 1 ? te::Edit::CountIn::oneBar
+                                                 : te::Edit::CountIn::none));
+}
+
+int EngineController::countInBars() const
+{
+    switch (edit->getCountInMode())
+    {
+        case te::Edit::CountIn::oneBar:  return 1;
+        case te::Edit::CountIn::twoBar:  return 2;
+        case te::Edit::CountIn::oneBeat:
+        case te::Edit::CountIn::twoBeat:
+        case te::Edit::CountIn::none:
+        default:                         return 0;
+    }
+}
+
+void EngineController::recordingFinished (te::InputDeviceInstance&, te::EditItemID targetID,
+                                          const juce::ReferenceCountedArray<te::Clip>& clips)
+{
+    if (onClipRecorded == nullptr)
+        return;
+
+    // tracktion created these clips itself, so they carry none of our ids. The
+    // session has to adopt them or the next synchronise will sweep them away as
+    // clips it does not know about.
+    for (auto* track : te::getAudioTracks (*edit))
+    {
+        if (track->itemID != targetID)
+            continue;
+
+        const auto trackId = track->state.getProperty (sessionTrackIdProperty).toString();
+
+        for (auto* clip : clips)
+        {
+            auto* wave = dynamic_cast<te::WaveAudioClip*> (clip);
+            if (wave == nullptr)
+                continue;
+
+            const auto position = wave->getPosition();
+            onClipRecorded (trackId, wave->getSourceFileReference().getFile(),
+                            position.getStart().inSeconds(),
+                            position.getLength().inSeconds());
+        }
+    }
 }
 
 bool EngineController::setTrackMute (const juce::String& trackId, bool muted)

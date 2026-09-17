@@ -70,13 +70,14 @@ juce::ValueTree Session::addTrack (juce::String type, juce::String name)
     track.setProperty ("pan", 0.0f, &undo);
     track.setProperty ("mute", false, &undo);
     track.setProperty ("solo", false, &undo);
+    track.setProperty ("armed", false, &undo);
     track.addChild (juce::ValueTree (clipsType()), -1, &undo);
     tracks().addChild (track, -1, &undo);
     return track;
 }
 
 juce::ValueTree Session::addAudioClip (juce::String trackId, const juce::File& sourceFile,
-                                       double lengthSeconds)
+                                       double lengthSeconds, double startSeconds)
 {
     auto track = trackWithId (trackId);
     if (! track.isValid())
@@ -85,7 +86,7 @@ juce::ValueTree Session::addAudioClip (juce::String trackId, const juce::File& s
     auto clip = juce::ValueTree (clipType());
     clip.setProperty (idProperty(), newId(), &undo);
     clip.setProperty ("name", sourceFile.getFileNameWithoutExtension(), &undo);
-    clip.setProperty ("start", 0.0, &undo);
+    clip.setProperty ("start", juce::jmax (0.0, startSeconds), &undo);
     clip.setProperty ("length", lengthSeconds, &undo);
     clip.setProperty ("offset", 0.0, &undo);
     clip.setProperty ("gainDb", 0.0, &undo);
@@ -304,6 +305,25 @@ bool Session::hasAnySoloedTrack() const
             return true;
 
     return false;
+}
+
+bool Session::setTrackArmed (const juce::String& trackId, bool armed)
+{
+    auto track = trackWithId (trackId);
+    if (! track.isValid())
+        return false;
+
+    if (static_cast<bool> (track.getProperty ("armed", false)) == armed)
+        return false;
+
+    track.setProperty ("armed", armed, &undo);
+    return true;
+}
+
+bool Session::isTrackArmed (const juce::String& trackId) const
+{
+    const auto track = trackWithId (trackId);
+    return track.isValid() && static_cast<bool> (track.getProperty ("armed", false));
 }
 
 bool Session::setTempo (double bpm)

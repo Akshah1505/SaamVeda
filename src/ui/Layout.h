@@ -28,7 +28,7 @@ namespace layout
 
     // Playlist panel contents
     constexpr int browserWidth        = 150;
-    constexpr int trackHeaderWidth    = 152;
+    constexpr int trackHeaderWidth    = 182;
     constexpr int rulerHeight         = 20;
     constexpr int laneHeight          = 58;
     constexpr int scrollBarThickness  = 12;
@@ -65,6 +65,7 @@ namespace colours
     const juce::Colour ledOff             { 0xff3c4450 };
     const juce::Colour muted              { 0xffe0685f };
     const juce::Colour soloed             { 0xffe8c25c };
+    const juce::Colour armed              { 0xffd8524a };
     const juce::Colour waveform           { 0xffbcd8f5 };
     const juce::Colour warning            { 0xffe8a15c };
 }

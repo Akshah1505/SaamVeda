@@ -71,6 +71,10 @@ private:
     void removeLastTrack();
     void toggleTrackMute (int trackIndex);
     void toggleTrackSolo (int trackIndex);
+    void toggleTrackArm (int trackIndex);
+    void toggleRecording();
+    void adoptRecordedClip (const juce::String& trackId, const juce::File& file,
+                            double startSeconds, double lengthSeconds);
     void renameTrack (int trackIndex, const juce::String& newName);
     void moveClip (int trackIndex, int clipIndex, int targetTrackIndex, double newStartSeconds);
     void importAudio();

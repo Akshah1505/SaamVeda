@@ -125,6 +125,65 @@ private:
     bool soloed;
 };
 
+/** Record-arm. Undoable like mute and solo, for the same reason: it is a
+    property of the track in the session tree, and docs/05-architecture.md
+    section 5 has state living there inherit undo uniformly.
+*/
+class SetTrackArmedCommand final : public Command
+{
+public:
+    SetTrackArmedCommand (juce::String trackId, bool shouldArm)
+        : idValue (std::move (trackId)), armed (shouldArm) {}
+
+    bool execute (core::Session& session) override
+    {
+        return session.setTrackArmed (idValue, armed);
+    }
+
+    juce::String name() const override { return armed ? "Arm Track" : "Disarm Track"; }
+
+private:
+    juce::String idValue;
+    bool armed;
+};
+
+/** Adopts a clip the engine produced from a recording.
+
+    Recording is the one path where the engine creates content rather than
+    mirroring it, so the session has to be told after the fact. Without this the
+    next synchronise would delete the take as a clip it does not recognise.
+*/
+class AddRecordedClipCommand final : public Command
+{
+public:
+    AddRecordedClipCommand (juce::String trackId, juce::File file,
+                            double startSeconds, double lengthSeconds)
+        : idValue (std::move (trackId)), sourceFile (std::move (file)),
+          start (startSeconds), length (lengthSeconds) {}
+
+    bool execute (core::Session& session) override
+    {
+        auto clip = session.addAudioClip (idValue, sourceFile, length, start);
+        clipId = clip.getProperty (core::Session::idProperty()).toString();
+
+        // A take is recorded at the tempo that was playing, so it needs no
+        // stretching to sit correctly against the grid.
+        if (clipId.isNotEmpty())
+            session.setClipSourceTempo (clipId, session.tempo());
+
+        return clipId.isNotEmpty();
+    }
+
+    juce::String name() const override { return "Record"; }
+    const juce::String& createdClipId() const noexcept { return clipId; }
+
+private:
+    juce::String idValue;
+    juce::File sourceFile;
+    double start, length;
+    juce::String clipId;
+};
+
 class RenameTrackCommand final : public Command
 {
 public:

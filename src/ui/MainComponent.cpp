@@ -77,9 +77,9 @@ namespace
             text.setText ("SaamVeda Studio 0.1.0\n\n"
                           "A digital audio workstation for Windows, built on JUCE 8 and\n"
                           "tracktion_engine.\n\n"
-                          "Phase 2 of 13 - session model, transport, and arrangement view.\n"
-                          "Recording, clip editing, plugins, piano roll, mixing, and export\n"
-                          "arrive in later phases; see docs/09-roadmap.md.",
+                          "Phase 4 of 13 - session model, transport, arrangement, and audio\n"
+                          "recording. MIDI, clip editing, plugins, piano roll, mixing and\n"
+                          "export arrive in later phases; see docs/09-roadmap.md.",
                           false);
 
             addAndMakeVisible (text);
@@ -117,10 +117,17 @@ MainComponent::MainComponent()
     };
     transportBar.onStop = [this]
     {
+        if (engineController.isRecording())
+        {
+            toggleRecording();
+            return;
+        }
+
         engineController.stop();
         updateTransportButtons();
         setStatus ("Stopped.");
     };
+    transportBar.onRecord = [this] { toggleRecording(); };
     transportBar.onToggleSongMode = [this]
     {
         setStatus ("Pattern mode arrives with the step sequencer in Phase 10.");
@@ -184,6 +191,7 @@ MainComponent::MainComponent()
     };
     playlist.timeline().onTrackMuteToggled = [this] (int index) { toggleTrackMute (index); };
     playlist.timeline().onTrackSoloToggled = [this] (int index) { toggleTrackSolo (index); };
+    playlist.timeline().onTrackArmToggled  = [this] (int index) { toggleTrackArm (index); };
     playlist.timeline().onTrackRenamed = [this] (int index, juce::String name)
     {
         renameTrack (index, name);
@@ -192,6 +200,12 @@ MainComponent::MainComponent()
                                               double start)
     {
         moveClip (trackIndex, clipIndex, targetTrack, start);
+    };
+
+    engineController.onClipRecorded = [this] (juce::String trackId, juce::File file,
+                                              double start, double length)
+    {
+        adoptRecordedClip (trackId, file, start, length);
     };
 
     playlist.timeline().setWaveformCache (&waveformCache);
@@ -325,6 +339,7 @@ void MainComponent::timerCallback()
     updateTransportButtons();
 
     transportBar.setAudioLoad (engineController.audioDeviceManager().getCpuUsage());
+    transportBar.setInputLevelDb (engineController.inputLevelDb());
 
     const auto realtime = engineController.realtimeReport();
     if (! realtime.available)
@@ -341,6 +356,8 @@ void MainComponent::timerCallback()
 void MainComponent::updateTransportButtons()
 {
     transportBar.setPlaying (engineController.isPlaying());
+    transportBar.setRecording (engineController.isRecording(),
+                               engineController.armedTrackCount());
     transportBar.setSongMode (true);
     toolBar.setLoop (engineController.isLooping());
     toolBar.setMetronome (engineController.isMetronomeEnabled());
@@ -425,6 +442,78 @@ void MainComponent::toggleTrackSolo (int trackIndex)
     engineController.setTrackSolo (trackId, shouldSolo);
     setStatus (shouldSolo ? "Soloed " + trackName + "; everything else is silent."
                           : "Unsoloed " + trackName + ".");
+    refreshTrackSummary();
+}
+
+void MainComponent::toggleTrackArm (int trackIndex)
+{
+    const auto track = session.tracks().getChild (trackIndex);
+    if (! track.isValid())
+        return;
+
+    const auto trackId = track.getProperty (core::Session::idProperty()).toString();
+    const auto trackName = track.getProperty ("name").toString();
+    const auto shouldArm = ! session.isTrackArmed (trackId);
+
+    // Arm the engine first: with no usable input there is nothing to arm, and
+    // recording the intent into the session would be a lie the UI then shows.
+    if (shouldArm && ! engineController.setTrackArmed (trackId, true))
+    {
+        setStatus ("No audio input available - enable one in Options > Audio Settings.");
+        return;
+    }
+
+    SetTrackArmedCommand command (trackId, shouldArm);
+    if (! commands.dispatch (command))
+        return;
+
+    if (! shouldArm)
+        engineController.setTrackArmed (trackId, false);
+
+    setStatus ((shouldArm ? "Armed " : "Disarmed ") + trackName + ".");
+    refreshTrackSummary();
+}
+
+void MainComponent::toggleRecording()
+{
+    if (engineController.isRecording())
+    {
+        engineController.stopRecording (false);
+        updateTransportButtons();
+        setStatus ("Recording stopped.");
+        return;
+    }
+
+    if (engineController.armedTrackCount() == 0)
+    {
+        setStatus ("Arm a track first - click the red R in its header.");
+        return;
+    }
+
+    engineController.startRecording();
+    updateTransportButtons();
+
+    const auto countIn = engineController.countInBars();
+    setStatus (countIn > 0 ? "Recording after a " + juce::String (countIn) + "-bar count-in..."
+                           : "Recording...");
+}
+
+void MainComponent::adoptRecordedClip (const juce::String& trackId, const juce::File& file,
+                                       double startSeconds, double lengthSeconds)
+{
+    if (trackId.isEmpty() || ! file.existsAsFile() || lengthSeconds <= 0.0)
+        return;
+
+    AddRecordedClipCommand command (trackId, file, startSeconds, lengthSeconds);
+    if (! commands.dispatch (command))
+        return;
+
+    // The engine already holds this clip; tag it with the session id so
+    // synchronise recognises it instead of deleting and re-importing.
+    engineController.adoptRecordedClip (trackId, file, command.createdClipId());
+
+    setStatus ("Recorded " + juce::String (lengthSeconds, 1) + " s onto "
+               + session.trackWithId (trackId).getProperty ("name").toString() + ".");
     refreshTrackSummary();
 }
 
@@ -830,7 +919,8 @@ void MainComponent::getAllCommands (juce::Array<juce::CommandID>& target)
 {
     target.addArray ({
         CommandIDs::playStop, CommandIDs::stopAndReturnToStart, CommandIDs::toggleLoop,
-        CommandIDs::loopPlay, CommandIDs::toggleMetronome, CommandIDs::skipToStart,
+        CommandIDs::loopPlay, CommandIDs::toggleMetronome, CommandIDs::toggleRecord,
+        CommandIDs::skipToStart,
         CommandIDs::skipToEnd, CommandIDs::shortSeekBack, CommandIDs::shortSeekForward,
         CommandIDs::longSeekBack, CommandIDs::longSeekForward,
         CommandIDs::undo, CommandIDs::redo,
@@ -877,6 +967,15 @@ void MainComponent::getCommandInfo (juce::CommandID commandID, juce::Application
                             CommandCategories::transport, 0);
             result.addDefaultKeypress ('m', Mods::noModifiers);
             result.setTicked (engineController.isMetronomeEnabled());
+            break;
+
+        case CommandIDs::toggleRecord:
+            result.setInfo ("Record", "Start or stop recording onto the armed tracks",
+                            CommandCategories::transport, 0);
+            result.addDefaultKeypress ('r', Mods::noModifiers);
+            result.setActive (engineController.armedTrackCount() > 0
+                              || engineController.isRecording());
+            result.setTicked (engineController.isRecording());
             break;
 
         case CommandIDs::skipToStart:
@@ -1023,6 +1122,10 @@ bool MainComponent::perform (const InvocationInfo& info)
 
         case CommandIDs::loopPlay:
             startLoopPlay();
+            break;
+
+        case CommandIDs::toggleRecord:
+            toggleRecording();
             break;
 
         case CommandIDs::toggleMetronome:

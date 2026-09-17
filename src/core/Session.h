@@ -24,13 +24,16 @@ public:
     int clipCount() const;
 
     juce::ValueTree addTrack (juce::String type, juce::String name);
-    juce::ValueTree addAudioClip (juce::String trackId, const juce::File& sourceFile, double lengthSeconds);
+    juce::ValueTree addAudioClip (juce::String trackId, const juce::File& sourceFile,
+                                  double lengthSeconds, double startSeconds = 0.0);
     bool removeTrack (juce::String trackId);
     bool renameTrack (juce::String trackId, juce::String name);
 
     bool setTrackMute (const juce::String& trackId, bool muted);
     bool isTrackMuted (const juce::String& trackId) const;
     bool setTrackSolo (const juce::String& trackId, bool soloed);
+    bool setTrackArmed (const juce::String& trackId, bool armed);
+    bool isTrackArmed (const juce::String& trackId) const;
     bool isTrackSoloed (const juce::String& trackId) const;
     bool hasAnySoloedTrack() const;
 

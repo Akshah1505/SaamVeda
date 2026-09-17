@@ -94,8 +94,12 @@ out of sync. `TimelineComponent` owns headers, ruler and lanes together for that
 **The hint panel sits top-left of the tool row**, where FL Studio puts it, showing the current
 selection above the last action's result. It is the first place the eye lands.
 
-**The `Rec` button is present but disabled.** Recording arrives in Phase 4. Leaving the control in
-place means the transport group does not reshuffle when it starts working.
+**The transport carries an input level meter.** It sits beside `Rec`, because the question it
+answers - "is signal arriving?" - is the one asked immediately before pressing record. It is in
+the group that never gets dropped when the window narrows, for the same reason.
+
+**Each track header carries R, S and the mute LED**, in that order, right of the name. Record-arm
+is leftmost because it is the least-used of the three and the most costly to hit by accident.
 
 ## 4. What is not there yet
 
