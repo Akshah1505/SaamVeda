@@ -458,23 +458,29 @@ void MainComponent::moveClip (int trackIndex, int clipIndex, int targetTrackInde
     const auto clipId = clip.getProperty (core::Session::idProperty()).toString();
     const auto clipName = clip.getProperty ("name").toString();
 
-    const auto targetTrack = session.tracks().getChild (targetTrackIndex);
-    const auto changingTrack = targetTrackIndex != trackIndex && targetTrack.isValid();
-    const auto targetTrackId = changingTrack
-        ? targetTrack.getProperty (core::Session::idProperty()).toString() : juce::String();
+    const auto changingTrack = targetTrackIndex >= 0 && targetTrackIndex != trackIndex;
 
-    MoveClipCommand command (clipId, newStartSeconds, targetTrackId);
+    MoveClipCommand command (clipId, newStartSeconds, changingTrack ? targetTrackIndex : -1);
     if (! commands.dispatch (command))
         return;
 
+    // The command may have created tracks to reach the row that was dropped on,
+    // so the engine needs those before the clip can be relocated onto one.
+    const auto trackList = session.tracks();
+    for (int i = 0; i < trackList.getNumChildren(); ++i)
+        engineController.ensureTrack (
+            trackList.getChild (i).getProperty (core::Session::idProperty()).toString());
+
+    const auto landedOn = session.trackIdContainingClip (clipId);
     if (changingTrack)
-        engineController.moveClipToTrack (clipId, targetTrackId);
+        engineController.moveClipToTrack (clipId, landedOn);
 
     engineController.setClipStart (clipId, session.clipStart (clipId));
 
     const auto where = juce::String (session.clipStart (clipId), 2) + " s";
     setStatus (changingTrack
-                   ? "Moved " + clipName + " to " + targetTrack.getProperty ("name").toString()
+                   ? "Moved " + clipName + " to "
+                         + session.trackWithId (landedOn).getProperty ("name").toString()
                          + " at " + where + "."
                    : "Moved " + clipName + " to " + where + ".");
     refreshTrackSummary();

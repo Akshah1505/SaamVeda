@@ -240,6 +240,23 @@ bool Session::moveClipToTrack (const juce::String& clipId, const juce::String& t
     return true;
 }
 
+juce::ValueTree Session::ensureTrackAtIndex (int index)
+{
+    if (index < 0)
+        return {};
+
+    auto trackList = tracks();
+
+    // Dropping a clip on row 5 of a one-track project should put it on row 5,
+    // where the user let go - not bounce it back to the last real track. The
+    // rows in between become real tracks too, because that is what the timeline
+    // was already showing.
+    while (trackList.getNumChildren() <= index)
+        addTrack ("audio", "Audio " + juce::String (trackList.getNumChildren() + 1));
+
+    return trackList.getChild (index);
+}
+
 bool Session::setTrackMute (const juce::String& trackId, bool muted)
 {
     auto track = trackWithId (trackId);

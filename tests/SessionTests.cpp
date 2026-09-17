@@ -192,7 +192,7 @@ TEST_CASE ("clips move between tracks and the move is undoable", "[core][clip][u
 
     // A diagonal drag is one gesture: new track and new position together, so
     // one Ctrl+Z puts both back.
-    MoveClipCommand move (clipId, 4.0, addSecond.id());
+    MoveClipCommand move (clipId, 4.0, 1);
     REQUIRE (bus.dispatch (move));
     REQUIRE (session.trackIdContainingClip (clipId) == addSecond.id());
     REQUIRE (session.clipStart (clipId) == 4.0);
@@ -206,6 +206,35 @@ TEST_CASE ("clips move between tracks and the move is undoable", "[core][clip][u
     // The clip keeps its identity across the move - it is the same node, not a
     // copy, so its length and source survive.
     REQUIRE (static_cast<double> (session.clipWithId (clipId).getProperty ("length")) == 9.0);
+}
+
+TEST_CASE ("dropping a clip on an empty row creates the track", "[core][clip]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    // One real track, the rest of the timeline is placeholder rows.
+    AddTrackCommand add ("audio", "One");
+    REQUIRE (bus.dispatch (add));
+    const auto clip = session.addAudioClip (add.id(), juce::File ("D:/Music/a.wav"), 5.0);
+    const auto clipId = clip.getProperty (Session::idProperty()).toString();
+    REQUIRE (session.tracks().getNumChildren() == 1);
+
+    // Dropping on row 2 must land on row 2, not bounce back to the only track
+    // that happened to exist.
+    MoveClipCommand move (clipId, 2.0, 2);
+    REQUIRE (bus.dispatch (move));
+    REQUIRE (session.tracks().getNumChildren() == 3);
+    REQUIRE (session.trackIdContainingClip (clipId)
+             == session.tracks().getChild (2).getProperty (Session::idProperty()).toString());
+    REQUIRE (session.clipsOf (session.trackWithId (add.id())).getNumChildren() == 0);
+
+    // The tracks it created are part of the same gesture, so one undo removes
+    // them along with the move.
+    REQUIRE (bus.undo());
+    REQUIRE (session.tracks().getNumChildren() == 1);
+    REQUIRE (session.trackIdContainingClip (clipId) == add.id());
+    REQUIRE (session.clipStart (clipId) == 0.0);
 }
 
 TEST_CASE ("moving a clip onto the track it is already on is not an edit", "[core][clip]")

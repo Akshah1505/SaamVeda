@@ -56,6 +56,10 @@ public:
     bool moveClipToTrack (const juce::String& clipId, const juce::String& targetTrackId);
     juce::String trackIdContainingClip (const juce::String& clipId) const;
 
+    /** Returns the track at this row, creating empty audio tracks up to it if
+        the row is still one of the placeholders the timeline draws. */
+    juce::ValueTree ensureTrackAtIndex (int index);
+
     // Tempo and time signature are undoable session state, not view state. The
     // UI writes them through these rather than touching the tree, so Ctrl+Z
     // covers them like every other edit.

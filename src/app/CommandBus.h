@@ -178,22 +178,28 @@ private:
     gesture, and undoing half of it would leave the clip somewhere the user
     never put it.
 
-    An empty targetTrackId means "leave it on the track it is already on".
+    The target is a row index rather than a track id because the row may not be
+    a track yet: the timeline always draws at least twelve, and dropping on an
+    empty one creates it. A negative index means "leave it where it is".
 */
 class MoveClipCommand final : public Command
 {
 public:
-    MoveClipCommand (juce::String clipId, double newStartSeconds,
-                     juce::String targetTrackId = {})
-        : idValue (std::move (clipId)), targetTrack (std::move (targetTrackId)),
-          start (newStartSeconds) {}
+    MoveClipCommand (juce::String clipId, double newStartSeconds, int targetRowIndex = -1)
+        : idValue (std::move (clipId)), start (newStartSeconds), targetRow (targetRowIndex) {}
 
     bool execute (core::Session& session) override
     {
         auto changed = false;
 
-        if (targetTrack.isNotEmpty())
-            changed = session.moveClipToTrack (idValue, targetTrack) || changed;
+        if (targetRow >= 0)
+        {
+            const auto target = session.ensureTrackAtIndex (targetRow);
+
+            if (target.isValid())
+                changed = session.moveClipToTrack (
+                    idValue, target.getProperty (core::Session::idProperty()).toString()) || changed;
+        }
 
         return session.setClipStart (idValue, start) || changed;
     }
@@ -201,8 +207,9 @@ public:
     juce::String name() const override { return "Move Clip"; }
 
 private:
-    juce::String idValue, targetTrack;
+    juce::String idValue;
     double start;
+    int targetRow;
 };
 
 class SetTempoCommand final : public Command

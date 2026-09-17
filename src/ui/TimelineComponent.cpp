@@ -175,16 +175,14 @@ TimelineComponent::ClipRef TimelineComponent::clipAt (juce::Point<int> position)
 
 int TimelineComponent::laneTrackIndexAt (juce::Point<int> position) const
 {
-    if (tracks.getNumChildren() == 0)
-        return -1;
-
     const auto lanes = laneArea();
     const auto index = static_cast<int> (std::floor (
         (position.y - lanes.getY() + verticalOffset) / static_cast<double> (layout::laneHeight)));
 
-    // Clamped rather than rejected: dragging past the last track should land on
-    // the last track, not snap back to where the clip came from.
-    return juce::jlimit (0, tracks.getNumChildren() - 1, index);
+    // Clamped to any drawn row, including the empty placeholders - dropping on
+    // one of those creates the track. Clamping to the last *real* track instead
+    // made a one-track project impossible to drag out of.
+    return juce::jlimit (0, juce::jmax (0, rowCount() - 1), index);
 }
 
 double TimelineComponent::snapToGrid (double seconds) const
@@ -643,7 +641,7 @@ void TimelineComponent::paintLanes (juce::Graphics& g)
 
     // The dragged clip, drawn over everything on the row it will land on.
     if (clipDragActive && draggedClip.isValid()
-        && juce::isPositiveAndBelow (clipDragTargetTrack, tracks.getNumChildren()))
+        && juce::isPositiveAndBelow (clipDragTargetTrack, rowCount()))
     {
         const auto sourceClips = tracks.getChild (draggedClip.track).getChildWithName ("CLIPS");
         const auto clip = sourceClips.getChild (draggedClip.clip);
