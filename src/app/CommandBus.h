@@ -170,6 +170,29 @@ private:
     juce::String trackId, clipId;
 };
 
+/** Moves a clip along the timeline.
+
+    One command per completed drag, not per mouse move: dragging a clip across
+    twenty bars is one thing the user did, and it should be one Ctrl+Z.
+*/
+class MoveClipCommand final : public Command
+{
+public:
+    MoveClipCommand (juce::String clipId, double newStartSeconds)
+        : idValue (std::move (clipId)), start (newStartSeconds) {}
+
+    bool execute (core::Session& session) override
+    {
+        return session.setClipStart (idValue, start);
+    }
+
+    juce::String name() const override { return "Move Clip"; }
+
+private:
+    juce::String idValue;
+    double start;
+};
+
 class SetTempoCommand final : public Command
 {
 public:

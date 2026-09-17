@@ -34,6 +34,9 @@ public:
     std::function<void (int)> onTrackSoloToggled;
     std::function<void (int, juce::String)> onTrackRenamed;
 
+    /** Fired once when a clip drag finishes, not while it is in flight. */
+    std::function<void (int trackIndex, int clipIndex, double newStartSeconds)> onClipMoved;
+
     void setWaveformCache (services::WaveformCache* cache) { waveformCache = cache; }
 
     void setLength (double seconds);
@@ -55,6 +58,7 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
@@ -84,6 +88,20 @@ private:
     juce::Rectangle<int> soloButtonBounds (int trackIndex) const;
     juce::Rectangle<int> nameBounds (int trackIndex) const;
 
+    /** Identifies a clip by its position in the session tree. */
+    struct ClipRef
+    {
+        int track = -1;
+        int clip = -1;
+        bool isValid() const noexcept { return track >= 0 && clip >= 0; }
+    };
+
+    ClipRef clipAt (juce::Point<int> position) const;
+    double clipStartOf (int trackIndex, int clipIndex) const;
+
+    /** Rounds to the nearest beat. Holding Alt during a drag bypasses it. */
+    double snapToGrid (double seconds) const;
+
     int trackIndexAt (juce::Point<int> position) const;
     bool isTrackMuted (int trackIndex) const;
     bool isTrackSoloed (int trackIndex) const;
@@ -99,7 +117,7 @@ private:
     void paintHeaders (juce::Graphics&);
     void paintLanes (juce::Graphics&);
     void paintClip (juce::Graphics&, const juce::ValueTree& clip, juce::Rectangle<int> row,
-                    bool muted);
+                    bool muted, double startSeconds, bool beingDragged);
     void paintPlayhead (juce::Graphics&);
 
     double lengthSeconds = 60.0;
@@ -115,6 +133,14 @@ private:
     int hoveredSoloTrack = -1;
     int renamingTrackIndex = -1;
     bool followPlayhead = true;
+
+    // Clip drag. The session is not touched until the mouse is released, so a
+    // drag is one undo step and the engine is not re-rated on every mouse move.
+    ClipRef draggedClip;
+    bool clipDragActive = false;
+    double clipDragGrabTime = 0.0;
+    double clipDragOriginalStart = 0.0;
+    double clipDragPreviewStart = 0.0;
 
     juce::ValueTree tracks;
     services::WaveformCache* waveformCache = nullptr;

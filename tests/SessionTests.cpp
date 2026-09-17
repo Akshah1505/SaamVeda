@@ -7,6 +7,7 @@ using saamveda::app::AddTrackCommand;
 using saamveda::app::ApplyDetectedTempoCommand;
 using saamveda::app::CommandBus;
 using saamveda::app::ImportAudioCommand;
+using saamveda::app::MoveClipCommand;
 using saamveda::app::RemoveTrackCommand;
 using saamveda::app::RenameTrackCommand;
 using saamveda::app::SetTapTempoCommand;
@@ -143,6 +144,52 @@ TEST_CASE ("remove track is undoable and restores position", "[core][undo]")
     REQUIRE (bus.undo());
     REQUIRE (session.tracks().getNumChildren() == 3);
     REQUIRE (session.tracks().getChild (1).getProperty ("name") == "Two");
+}
+
+TEST_CASE ("clips move along the timeline and the move is undoable", "[core][clip][undo]")
+{
+    Session session;
+    CommandBus bus (session);
+
+    ImportAudioCommand import (juce::File ("D:\\Music\\take.wav"), 12.5);
+    REQUIRE (bus.dispatch (import));
+    const auto clipId = import.createdClipId();
+    REQUIRE (session.clipStart (clipId) == 0.0);
+
+    MoveClipCommand move (clipId, 8.0);
+    REQUIRE (bus.dispatch (move));
+    REQUIRE (session.clipStart (clipId) == 8.0);
+
+    // A drag that ends where it started is not an edit.
+    MoveClipCommand again (clipId, 8.0);
+    REQUIRE_FALSE (bus.dispatch (again));
+
+    // Negative positions are clamped rather than rejected: a drag past zero
+    // should stop at zero, not refuse to move.
+    MoveClipCommand beforeZero (clipId, -5.0);
+    REQUIRE (bus.dispatch (beforeZero));
+    REQUIRE (session.clipStart (clipId) == 0.0);
+
+    REQUIRE (bus.undo());
+    REQUIRE (session.clipStart (clipId) == 8.0);
+    REQUIRE (bus.undo());
+    REQUIRE (session.clipStart (clipId) == 0.0);
+}
+
+TEST_CASE ("clip position survives serialisation", "[core][clip][persistence]")
+{
+    Session source;
+    const auto track = source.addTrack ("audio", "Guitar");
+    const auto trackId = track.getProperty (Session::idProperty()).toString();
+    const auto clip = source.addAudioClip (trackId, juce::File ("D:\\Music\\a.wav"), 4.0);
+    const auto clipId = clip.getProperty (Session::idProperty()).toString();
+    REQUIRE (source.setClipStart (clipId, 12.25));
+
+    auto xml = source.state().createXml();
+    REQUIRE (xml != nullptr);
+
+    Session restored (juce::ValueTree::fromXml (*xml));
+    REQUIRE (restored.clipStart (clipId) == 12.25);
 }
 
 TEST_CASE ("track mute toggles and is undoable", "[core][mute]")

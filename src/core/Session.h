@@ -48,6 +48,10 @@ public:
     /** Lead-in trimmed from the front of a clip, in seconds. */
     bool setClipOffset (const juce::String& clipId, double seconds);
 
+    /** Position of the clip on the timeline, in seconds from zero. */
+    bool setClipStart (const juce::String& clipId, double seconds);
+    double clipStart (const juce::String& clipId) const;
+
     // Tempo and time signature are undoable session state, not view state. The
     // UI writes them through these rather than touching the tree, so Ctrl+Z
     // covers them like every other edit.

@@ -184,6 +184,26 @@ bool Session::renameTrack (juce::String trackId, juce::String name)
     return true;
 }
 
+bool Session::setClipStart (const juce::String& clipId, double seconds)
+{
+    auto clip = clipWithId (clipId);
+    if (! clip.isValid())
+        return false;
+
+    const auto clamped = juce::jmax (0.0, seconds);
+    if (juce::approximatelyEqual (clamped, static_cast<double> (clip.getProperty ("start", 0.0))))
+        return false;
+
+    clip.setProperty ("start", clamped, &undo);
+    return true;
+}
+
+double Session::clipStart (const juce::String& clipId) const
+{
+    const auto clip = clipWithId (clipId);
+    return clip.isValid() ? static_cast<double> (clip.getProperty ("start", 0.0)) : 0.0;
+}
+
 bool Session::setTrackMute (const juce::String& trackId, bool muted)
 {
     auto track = trackWithId (trackId);

@@ -128,6 +128,60 @@ int TimelineComponent::trackIndexAt (juce::Point<int> position) const
     return juce::isPositiveAndBelow (index, rowCount()) ? index : -1;
 }
 
+double TimelineComponent::clipStartOf (int trackIndex, int clipIndex) const
+{
+    if (! juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren()))
+        return 0.0;
+
+    const auto clips = tracks.getChild (trackIndex).getChildWithName ("CLIPS");
+    if (! juce::isPositiveAndBelow (clipIndex, clips.getNumChildren()))
+        return 0.0;
+
+    return static_cast<double> (clips.getChild (clipIndex).getProperty ("start", 0.0));
+}
+
+TimelineComponent::ClipRef TimelineComponent::clipAt (juce::Point<int> position) const
+{
+    const auto lanes = laneArea();
+    if (! lanes.contains (position))
+        return {};
+
+    for (int i = 0; i < tracks.getNumChildren(); ++i)
+    {
+        const auto row = rowBounds (i, lanes);
+        if (! row.contains (position))
+            continue;
+
+        const auto clips = tracks.getChild (i).getChildWithName ("CLIPS");
+
+        // Back to front, so the topmost clip under the pointer wins once
+        // overlapping clips become possible in Phase 6.
+        for (int j = clips.getNumChildren(); --j >= 0;)
+        {
+            const auto clip = clips.getChild (j);
+            const auto start = static_cast<double> (clip.getProperty ("start", 0.0));
+            const auto length = juce::jmax (0.01, static_cast<double> (
+                clip.getProperty ("length", 0.0)));
+
+            if (position.x >= timeToX (start) && position.x <= timeToX (start + length))
+                return { i, j };
+        }
+
+        return {};
+    }
+
+    return {};
+}
+
+double TimelineComponent::snapToGrid (double seconds) const
+{
+    const auto beatSeconds = (60.0 / tempoBpm) * (4.0 / timeSigDenominator);
+    if (beatSeconds <= 0.0)
+        return seconds;
+
+    return std::round (seconds / beatSeconds) * beatSeconds;
+}
+
 bool TimelineComponent::isTrackMuted (int trackIndex) const
 {
     return juce::isPositiveAndBelow (trackIndex, tracks.getNumChildren())
@@ -558,17 +612,26 @@ void TimelineComponent::paintLanes (juce::Graphics& g)
 
         const auto muted = isTrackMuted (i);
         const auto clips = tracks.getChild (i).getChildWithName ("CLIPS");
+
         for (int clipIndex = 0; clipIndex < clips.getNumChildren(); ++clipIndex)
-            paintClip (g, clips.getChild (clipIndex), row, muted);
+        {
+            const auto clip = clips.getChild (clipIndex);
+            const auto dragging = clipDragActive && draggedClip.track == i
+                               && draggedClip.clip == clipIndex;
+            const auto start = dragging ? clipDragPreviewStart
+                                        : static_cast<double> (clip.getProperty ("start", 0.0));
+
+            paintClip (g, clip, row, muted, start, dragging);
+        }
     }
 
     g.restoreState();
 }
 
 void TimelineComponent::paintClip (juce::Graphics& g, const juce::ValueTree& clip,
-                                   juce::Rectangle<int> row, bool muted)
+                                   juce::Rectangle<int> row, bool muted, double start,
+                                   bool beingDragged)
 {
-    const auto start = static_cast<double> (clip.getProperty ("start"));
     const auto clipLength = juce::jmax (0.01, static_cast<double> (clip.getProperty ("length")));
 
     const auto left = timeToX (start);
@@ -590,8 +653,14 @@ void TimelineComponent::paintClip (juce::Graphics& g, const juce::ValueTree& cli
                                                        .withMultipliedBrightness (0.7f)
                                    : colours::clipTitle;
 
-    g.setColour (bodyColour);
+    g.setColour (beingDragged ? bodyColour.brighter (0.15f) : bodyColour);
     g.fillRoundedRectangle (bounds.toFloat(), 3.0f);
+
+    if (beingDragged)
+    {
+        g.setColour (colours::playhead);
+        g.drawRoundedRectangle (bounds.toFloat().reduced (0.5f), 3.0f, 1.5f);
+    }
 
     auto title = bounds.removeFromTop (clipTitleHeight);
     g.setColour (titleColour);
@@ -709,19 +778,77 @@ void TimelineComponent::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
+    // A click on a clip picks it up. A click on empty lane still moves the
+    // playhead, so the timeline keeps its most common use.
+    if (const auto hit = clipAt (event.getPosition()); hit.isValid())
+    {
+        draggedClip = hit;
+        clipDragActive = true;
+        clipDragGrabTime = xToTime (event.x);
+        clipDragOriginalStart = clipStartOf (hit.track, hit.clip);
+        clipDragPreviewStart = clipDragOriginalStart;
+        selectedTrackIndex = hit.track;
+
+        if (onTrackSelected)
+            onTrackSelected (selectedTrackIndex);
+
+        setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        repaint();
+        return;
+    }
+
     seekFromX (event.x);
 }
 
 void TimelineComponent::mouseDrag (const juce::MouseEvent& event)
 {
+    if (clipDragActive)
+    {
+        const auto moved = xToTime (event.x) - clipDragGrabTime;
+        const auto raw = juce::jmax (0.0, clipDragOriginalStart + moved);
+
+        // Snapped to the beat by default, free while Alt is held - the usual
+        // arrangement of these two in a DAW.
+        clipDragPreviewStart = event.mods.isAltDown() ? raw
+                                                      : juce::jmax (0.0, snapToGrid (raw));
+        repaint();
+        return;
+    }
+
     if (! headerArea().contains (event.getPosition()))
         seekFromX (event.x);
+}
+
+void TimelineComponent::mouseUp (const juce::MouseEvent&)
+{
+    if (! clipDragActive)
+        return;
+
+    const auto moved = draggedClip;
+    const auto newStart = clipDragPreviewStart;
+    const auto changed = ! juce::approximatelyEqual (newStart, clipDragOriginalStart);
+
+    clipDragActive = false;
+    draggedClip = {};
+    setMouseCursor (juce::MouseCursor::NormalCursor);
+    repaint();
+
+    if (changed && onClipMoved)
+        onClipMoved (moved.track, moved.clip, newStart);
 }
 
 void TimelineComponent::mouseMove (const juce::MouseEvent& event)
 {
     const auto index = trackIndexAt (event.getPosition());
     const auto isReal = juce::isPositiveAndBelow (index, tracks.getNumChildren());
+
+    // A grab cursor over clips advertises that they can be dragged.
+    if (laneArea().contains (event.getPosition()))
+    {
+        setMouseCursor (clipAt (event.getPosition()).isValid()
+                            ? juce::MouseCursor::DraggingHandCursor
+                            : juce::MouseCursor::NormalCursor);
+    }
 
     const auto overMute = isReal && muteButtonBounds (index).contains (event.getPosition());
     const auto overSolo = isReal && soloButtonBounds (index).contains (event.getPosition());

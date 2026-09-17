@@ -152,10 +152,16 @@ void TransportBar::paint (juce::Graphics& g)
     g.fillAll (colours::chromeBackground);
 
     // Recess the position readout so it reads as an instrument display rather
-    // than another button.
-    auto readout = getLocalBounds().reduced (6, 4).removeFromRight (280).removeFromLeft (176);
-    g.setColour (colours::windowBackground);
-    g.fillRoundedRectangle (readout.toFloat(), 3.0f);
+    // than another button. Only when it is actually showing.
+    if (barsLabel.isVisible())
+    {
+        auto readout = getLocalBounds().reduced (6, 4)
+                           .removeFromRight (loadLabel.isVisible() ? loadWidth + readoutWidth
+                                                                   : readoutWidth)
+                           .removeFromLeft (readoutWidth);
+        g.setColour (colours::windowBackground);
+        g.fillRoundedRectangle (readout.toFloat(), 3.0f);
+    }
 
     g.setColour (colours::outline);
     g.drawHorizontalLine (getHeight() - 1, 0.0f, static_cast<float> (getWidth()));
@@ -165,6 +171,7 @@ void TransportBar::resized()
 {
     auto area = getLocalBounds().reduced (6, 4);
 
+    // The transport itself is never dropped.
     songModeButton.setBounds (area.removeFromLeft (56).reduced (1));
     area.removeFromLeft (6);
     playButton.setBounds (area.removeFromLeft (58).reduced (1));
@@ -172,22 +179,50 @@ void TransportBar::resized()
     recordButton.setBounds (area.removeFromLeft (48).reduced (1));
     area.removeFromLeft (10);
     tempoSlider.setBounds (area.removeFromLeft (118).reduced (1));
-    area.removeFromLeft (10);
 
-    auto timeSignature = area.removeFromLeft (108);
-    timeSignatureCaption.setBounds (timeSignature.removeFromTop (11));
-    numeratorBox.setBounds (timeSignature.removeFromLeft (52).reduced (1));
-    denominatorBox.setBounds (timeSignature.removeFromLeft (52).reduced (1));
+    // Everything after the tempo is optional, in priority order. The row is
+    // laid out from both edges and cannot wrap, so without this the readouts
+    // simply fall off the right-hand side when the window is narrow - which is
+    // exactly what happens when the app is docked beside something else.
+    auto remaining = area.getWidth();
+    const auto showReadout = remaining >= readoutWidth;
+    if (showReadout) remaining -= readoutWidth;
+    const auto showTimeSignature = remaining >= timeSignatureWidth;
+    if (showTimeSignature) remaining -= timeSignatureWidth;
+    const auto showLoad = remaining >= loadWidth;
 
-    loadLabel.setBounds (area.removeFromRight (104).reduced (4, 0));
+    for (auto* c : std::initializer_list<juce::Component*>
+         { &timeSignatureCaption, &numeratorBox, &denominatorBox })
+        c->setVisible (showTimeSignature);
 
-    // Caption and elapsed time share the top line so the bar counter gets the
-    // whole remaining height; stacking all three overflowed the row.
-    auto readout = area.removeFromRight (176).reduced (8, 3);
-    auto captionRow = readout.removeFromTop (11);
-    positionCaption.setBounds (captionRow.removeFromLeft (80));
-    secondsLabel.setBounds (captionRow);
-    barsLabel.setBounds (readout);
+    for (auto* c : std::initializer_list<juce::Component*>
+         { &positionCaption, &barsLabel, &secondsLabel })
+        c->setVisible (showReadout);
+
+    loadLabel.setVisible (showLoad);
+
+    if (showTimeSignature)
+    {
+        area.removeFromLeft (10);
+        auto timeSignature = area.removeFromLeft (108);
+        timeSignatureCaption.setBounds (timeSignature.removeFromTop (11));
+        numeratorBox.setBounds (timeSignature.removeFromLeft (52).reduced (1));
+        denominatorBox.setBounds (timeSignature.removeFromLeft (52).reduced (1));
+    }
+
+    if (showLoad)
+        loadLabel.setBounds (area.removeFromRight (loadWidth).reduced (4, 0));
+
+    if (showReadout)
+    {
+        // Caption and elapsed time share the top line so the bar counter gets
+        // the whole remaining height; stacking all three overflowed the row.
+        auto readout = area.removeFromRight (readoutWidth).reduced (8, 3);
+        auto captionRow = readout.removeFromTop (11);
+        positionCaption.setBounds (captionRow.removeFromLeft (80));
+        secondsLabel.setBounds (captionRow);
+        barsLabel.setBounds (readout);
+    }
 }
 
 //==============================================================================
@@ -281,7 +316,7 @@ void ToolBar::paint (juce::Graphics& g)
 {
     g.fillAll (colours::chromeBackground);
 
-    auto hint = getLocalBounds().removeFromLeft (layout::hintPanelWidth).reduced (6, 4);
+    auto hint = getLocalBounds().removeFromLeft (hintWidth).reduced (6, 4);
     g.setColour (colours::windowBackground);
     g.fillRoundedRectangle (hint.toFloat(), 3.0f);
 
@@ -291,16 +326,34 @@ void ToolBar::paint (juce::Graphics& g)
 
 void ToolBar::resized()
 {
+    // The hint panel gives up width before the buttons do: a narrower panel
+    // still says what is selected, whereas a button pushed off the edge is just
+    // gone.
+    hintWidth = juce::jlimit (150, layout::hintPanelWidth, getWidth() / 4);
+
     auto area = getLocalBounds().reduced (6, 4);
 
-    auto hint = area.removeFromLeft (layout::hintPanelWidth - 12).reduced (6, 2);
+    auto hint = area.removeFromLeft (hintWidth - 12).reduced (6, 2);
     contextHeading.setBounds (hint.removeFromTop (13));
     contextDetail.setBounds (hint.removeFromTop (16));
-    statusLabel.setBounds (getLocalBounds().withTrimmedLeft (layout::hintPanelWidth + 4)
+    statusLabel.setBounds (getLocalBounds().withTrimmedLeft (hintWidth + 4)
                                .withTrimmedTop (getHeight() - 15).withHeight (14));
 
     area.removeFromLeft (12);
     auto buttons = area.removeFromTop (getHeight() - 20);
+
+    // Keys is small and is the way in to every shortcut, so it keeps its place
+    // at the right edge; the notification only appears when there is room left
+    // over after the action buttons.
+    shortcutsButton.setBounds (buttons.removeFromRight (52).reduced (2));
+
+    const auto buttonsNeed = 86 + 80 + 72 + 8 + 58 + 58 + 8 + 60 + 96 + 50;
+    const auto showNotification = buttons.getWidth() >= buttonsNeed + 140;
+    notificationLabel.setVisible (showNotification);
+
+    if (showNotification)
+        notificationLabel.setBounds (buttons.removeFromRight (
+            juce::jmin (210, buttons.getWidth() - buttonsNeed)).reduced (4, 2));
 
     addTrackButton.setBounds (buttons.removeFromLeft (86).reduced (2));
     importButton.setBounds (buttons.removeFromLeft (80).reduced (2));
@@ -312,9 +365,6 @@ void ToolBar::resized()
     loopButton.setBounds (buttons.removeFromLeft (60).reduced (2));
     metronomeButton.setBounds (buttons.removeFromLeft (96).reduced (2));
     tapTempoButton.setBounds (buttons.removeFromLeft (50).reduced (2));
-
-    shortcutsButton.setBounds (buttons.removeFromRight (52).reduced (2));
-    notificationLabel.setBounds (buttons.removeFromRight (210).reduced (4, 2));
 }
 
 } // namespace saamveda::ui

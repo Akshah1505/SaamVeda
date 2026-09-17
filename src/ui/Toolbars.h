@@ -33,12 +33,23 @@ public:
     double tempo() const;
     bool isTempoBeingDragged() const noexcept { return tempoDragging; }
 
+    /** Width this row needs to show the transport, the tempo and the position
+        readout together. The shell uses it to decide whether the menu can share
+        this row: below this the menu takes its own, because a transport bar
+        that has dropped its position readout to make room for a menu has its
+        priorities backwards. */
+    static constexpr int minimumUsefulWidth = 560;
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
     juce::TextButton songModeButton { "SONG" };
     juce::TextButton playButton { "Play" }, stopButton { "Stop" }, recordButton { "Rec" };
+    static constexpr int readoutWidth = 176;
+    static constexpr int timeSignatureWidth = 118;
+    static constexpr int loadWidth = 104;
+
     juce::Slider tempoSlider;
     juce::ComboBox numeratorBox, denominatorBox;
     juce::Label barsLabel, secondsLabel, positionCaption, loadLabel, timeSignatureCaption;
@@ -79,6 +90,7 @@ private:
                      redoButton { "Redo" }, tapTempoButton { "Tap" },
                      shortcutsButton { "Keys" };
     juce::ToggleButton loopButton { "Loop" }, metronomeButton { "Metronome" };
+    int hintWidth = layout::hintPanelWidth;
     bool notificationIsWarning = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ToolBar)

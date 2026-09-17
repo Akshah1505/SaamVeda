@@ -53,6 +53,9 @@ public:
     bool applyDetectedTempo (const juce::String& clipId, double projectTempoBpm,
                              double sourceTempoBpm, double offsetSeconds);
 
+    /** Moves one clip along the timeline. */
+    bool setClipStart (const juce::String& clipId, double startSeconds);
+
     // Structure, mirrored from the session by id
     bool ensureTrack (const juce::String& trackId);
     bool removeTrack (const juce::String& trackId);
@@ -63,7 +66,7 @@ public:
     bool setTrackSolo (const juce::String& trackId, bool soloed);
     double importAudioFile (const juce::File& file, const juce::String& trackId,
                             const juce::String& clipId, double sourceTempoBpm,
-                            double offsetSeconds);
+                            double offsetSeconds, double startSeconds);
     void synchronise (const core::Session& session);
 
     // Queries
@@ -89,6 +92,7 @@ private:
     static const juce::Identifier sessionClipIdProperty;
     static const juce::Identifier sourceTempoProperty;
     static const juce::Identifier offsetProperty;
+    static const juce::Identifier startProperty;
 
     tracktion::engine::AudioTrack* trackForId (const juce::String& trackId) const;
     tracktion::engine::Clip* clipForId (tracktion::engine::AudioTrack&,

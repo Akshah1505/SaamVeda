@@ -188,6 +188,10 @@ MainComponent::MainComponent()
     {
         renameTrack (index, name);
     };
+    playlist.timeline().onClipMoved = [this] (int trackIndex, int clipIndex, double start)
+    {
+        moveClip (trackIndex, clipIndex, start);
+    };
 
     playlist.timeline().setWaveformCache (&waveformCache);
     waveformCache.addChangeListener (this);
@@ -239,10 +243,10 @@ void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (colours::windowBackground);
 
-    // Backing for the menu bar's band, which the menu itself does not fill.
+    // Backing behind the menu bar, which the menu itself does not fill.
     g.setColour (colours::chromeBackground);
-    g.fillRect (getLocalBounds().withWidth (layout::menuBarWidth)
-                    .withHeight (layout::transportRowHeight));
+    g.fillRect (getLocalBounds().withWidth (menuBar.getRight())
+                    .withHeight (menuBar.getBottom()));
 }
 
 void MainComponent::mouseDown (const juce::MouseEvent&)
@@ -278,9 +282,21 @@ void MainComponent::resized()
 {
     auto area = getLocalBounds();
 
-    auto topRow = area.removeFromTop (layout::transportRowHeight);
-    menuBar.setBounds (topRow.removeFromLeft (layout::menuBarWidth).withHeight (26));
-    transportBar.setBounds (topRow);
+    // The menu and transport share a row when there is room, as in the
+    // reference layout. When there is not - docked beside another window, say -
+    // the menu takes its own row rather than squeezing the transport until its
+    // readouts fall off the edge.
+    if (getWidth() >= layout::menuBarWidth + TransportBar::minimumUsefulWidth)
+    {
+        auto topRow = area.removeFromTop (layout::transportRowHeight);
+        menuBar.setBounds (topRow.removeFromLeft (layout::menuBarWidth).withHeight (26));
+        transportBar.setBounds (topRow);
+    }
+    else
+    {
+        menuBar.setBounds (area.removeFromTop (26));
+        transportBar.setBounds (area.removeFromTop (layout::transportRowHeight));
+    }
 
     toolBar.setBounds (area.removeFromTop (layout::toolRowHeight));
     playlist.setBounds (area.reduced (6, 6));
@@ -430,6 +446,25 @@ void MainComponent::renameTrack (int trackIndex, const juce::String& newName)
     refreshTrackSummary();
 }
 
+void MainComponent::moveClip (int trackIndex, int clipIndex, double newStartSeconds)
+{
+    const auto track = session.tracks().getChild (trackIndex);
+    const auto clip = session.clipsOf (track).getChild (clipIndex);
+    if (! clip.isValid())
+        return;
+
+    const auto clipId = clip.getProperty (core::Session::idProperty()).toString();
+    const auto clipName = clip.getProperty ("name").toString();
+
+    MoveClipCommand command (clipId, newStartSeconds);
+    if (! commands.dispatch (command))
+        return;
+
+    engineController.setClipStart (clipId, session.clipStart (clipId));
+    setStatus ("Moved " + clipName + " to " + juce::String (session.clipStart (clipId), 2) + " s.");
+    refreshTrackSummary();
+}
+
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     // A thumbnail finished another chunk of its file; the lanes are the only
@@ -466,7 +501,7 @@ void MainComponent::importAudio()
 
         const auto duration = engineController.importAudioFile (
             file, command.createdTrackId(), command.createdClipId(),
-            session.clipSourceTempo (command.createdClipId()), 0.0);
+            session.clipSourceTempo (command.createdClipId()), 0.0, 0.0);
         if (duration <= 0.0)
         {
             // The engine rejected the file, so roll the session back rather than

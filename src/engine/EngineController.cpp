@@ -9,6 +9,7 @@ const juce::Identifier EngineController::sessionTrackIdProperty { "saamvedaTrack
 const juce::Identifier EngineController::sessionClipIdProperty  { "saamvedaClipId" };
 const juce::Identifier EngineController::sourceTempoProperty    { "saamvedaSourceTempo" };
 const juce::Identifier EngineController::offsetProperty         { "saamvedaOffset" };
+const juce::Identifier EngineController::startProperty          { "saamvedaStart" };
 
 namespace
 {
@@ -224,10 +225,15 @@ void EngineController::applyClipSettings (te::AudioClipBase& clip)
                                     juce::jmax (0.0, static_cast<double> (
                                         clip.state.getProperty (offsetProperty, 0.0))));
 
+    const auto startSeconds = juce::jmax (0.0, static_cast<double> (
+        clip.state.getProperty (startProperty, 0.0)));
+
     // Written absolutely rather than trimmed off the current position: this
     // runs again on every tempo change, and an incremental trim would eat a
-    // little more of the clip each time.
-    clip.setPosition ({ { clip.getPosition().getStart(), duration (fullLength - trim) },
+    // little more of the clip each time. The start comes from the stored
+    // property for the same reason - reading it back off the clip would let
+    // rounding walk the clip along the timeline.
+    clip.setPosition ({ { seconds (startSeconds), duration (fullLength - trim) },
                         duration (trim) });
 }
 
@@ -307,6 +313,22 @@ bool EngineController::ensureTrack (const juce::String& trackId)
     return true;
 }
 
+bool EngineController::setClipStart (const juce::String& clipId, double startSeconds)
+{
+    auto* clip = audioClipForId (clipId);
+    if (clip == nullptr)
+        return false;
+
+    preservingTransport ([this, clip, startSeconds]
+    {
+        clip->state.setProperty (startProperty, juce::jmax (0.0, startSeconds), nullptr);
+        applyClipSettings (*clip);
+    });
+
+    updateLoopRange();
+    return true;
+}
+
 bool EngineController::setTrackMute (const juce::String& trackId, bool muted)
 {
     auto* track = trackForId (trackId);
@@ -352,7 +374,7 @@ bool EngineController::removeTrack (const juce::String& trackId)
 
 double EngineController::importAudioFile (const juce::File& file, const juce::String& trackId,
                                           const juce::String& clipId, double sourceTempoBpm,
-                                          double offsetSeconds)
+                                          double offsetSeconds, double startSeconds)
 {
     te::AudioFile audioFile (engine, file);
     if (! file.existsAsFile() || ! audioFile.isValid() || ! ensureTrack (trackId))
@@ -375,6 +397,7 @@ double EngineController::importAudioFile (const juce::File& file, const juce::St
     clip->state.setProperty (sourceTempoProperty,
                              sourceTempoBpm > 0.0 ? sourceTempoBpm : tempo(), nullptr);
     clip->state.setProperty (offsetProperty, juce::jmax (0.0, offsetSeconds), nullptr);
+    clip->state.setProperty (startProperty, juce::jmax (0.0, startSeconds), nullptr);
     applyClipSettings (*clip);
 
     updateLoopRange();
@@ -439,19 +462,21 @@ void EngineController::synchronise (const core::Session& session)
             const auto sourceTempo = static_cast<double> (
                 sessionClip.getProperty ("sourceTempo", session.tempo()));
             const auto offset = static_cast<double> (sessionClip.getProperty ("offset", 0.0));
+            const auto clipStart = static_cast<double> (sessionClip.getProperty ("start", 0.0));
 
             if (auto* existing = audioClipForId (clipId))
             {
                 // Already present, but undo may have restored a different
-                // source tempo or lead-in behind it.
+                // source tempo, lead-in or position behind it.
                 existing->state.setProperty (sourceTempoProperty, sourceTempo, nullptr);
                 existing->state.setProperty (offsetProperty, offset, nullptr);
+                existing->state.setProperty (startProperty, clipStart, nullptr);
                 continue;
             }
 
             const auto path = sessionClip.getProperty ("sourceFile").toString();
             if (path.isNotEmpty())
-                importAudioFile (juce::File (path), trackId, clipId, sourceTempo, offset);
+                importAudioFile (juce::File (path), trackId, clipId, sourceTempo, offset, clipStart);
         }
     }
 
