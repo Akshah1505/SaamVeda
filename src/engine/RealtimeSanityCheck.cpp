@@ -28,6 +28,7 @@ namespace
     std::atomic<size_t> largestAllocation { 0 };
     std::atomic<int> minimumBlockSize { 0 };
     std::atomic<int> maximumBlockSize { 0 };
+    std::atomic<int> deliveredInputChannels { -1 };
 
 #if SAAMVEDA_ALLOC_HOOK_ACTIVE
     // Stacks for the first few offenders. Fixed storage, because the whole
@@ -217,6 +218,7 @@ RealtimeSanityCheck::Report RealtimeSanityCheck::report() const
     result.largestAllocationBytes = largestAllocation.load (std::memory_order_relaxed);
     result.minimumBlockSize = minimumBlockSize.load (std::memory_order_relaxed);
     result.maximumBlockSize = maximumBlockSize.load (std::memory_order_relaxed);
+    result.inputChannels = deliveredInputChannels.load (std::memory_order_relaxed);
     return result;
 }
 
@@ -234,13 +236,14 @@ void RealtimeSanityCheck::audioDeviceStopped()
 }
 
 void RealtimeSanityCheck::audioDeviceIOCallbackWithContext (const float* const*,
-                                                            int,
+                                                            int numInputChannels,
                                                             float* const* outputChannelData,
                                                             int numOutputChannels,
                                                             int numSamples,
                                                             const juce::AudioIODeviceCallbackContext&)
 {
     audioThreadId.store (juce::Thread::getCurrentThreadId(), std::memory_order_relaxed);
+    deliveredInputChannels.store (numInputChannels, std::memory_order_relaxed);
 
     // A device that varies its block size forces every downstream buffer to
     // resize, so this is worth knowing before blaming the code downstream.

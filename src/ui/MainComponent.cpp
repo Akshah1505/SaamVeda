@@ -357,15 +357,22 @@ void MainComponent::timerCallback()
             if (! offenders.isEmpty())
             {
                 realtimeOffendersDumped = true;
+
+                // The channel layout goes in first: the allocation storm this
+                // detector was built to find turned out to be a channel-count
+                // mismatch, and the stacks alone did not say so.
+                const auto header = "audio in: " + engineController.inputChannelDiagnostics()
+                                  + ", callback delivers " + juce::String (realtime.inputChannels);
+
                 juce::File::getSpecialLocation (juce::File::tempDirectory)
                     .getChildFile ("saamveda-rt-allocations.txt")
-                    .replaceWithText (offenders.joinIntoString (juce::newLine + juce::newLine));
+                    .replaceWithText (header + juce::newLine + juce::newLine
+                                          + offenders.joinIntoString (juce::newLine + juce::newLine));
             }
         }
 
-        toolBar.setNotification ("RT allocs " + juce::String (realtime.allocations)
-                                     + "  block " + juce::String (realtime.minimumBlockSize)
-                                     + "-" + juce::String (realtime.maximumBlockSize),
+        toolBar.setNotification ("RT check: " + juce::String (realtime.allocations)
+                                     + " audio-thread allocations",
                                  true);
     }
 }

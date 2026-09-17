@@ -4,6 +4,7 @@
 
 #include "../core/Session.h"
 #include "RealtimeSanityCheck.h"
+#include "WaveDeviceLayout.h"
 
 namespace saamveda::engine
 {
@@ -122,11 +123,17 @@ public:
     RealtimeSanityCheck::Report realtimeReport() const { return realtimeCheck.report(); }
     juce::StringArray realtimeOffenders() { return realtimeCheck.describeOffenders(); }
 
+    /** Channel indices tracktion's wave input expects from the device. */
+    juce::String inputChannelDiagnostics() const;
+
     juce::AudioDeviceManager& audioDeviceManager();
     juce::String audioFileWildcard() const;
 
 private:
-    tracktion::engine::Engine engine { "SaamVeda Studio" };
+    // The behaviour has to be supplied at construction: it decides the wave
+    // device layout, and that is read the first time a device opens.
+    tracktion::engine::Engine engine { "SaamVeda Studio", nullptr,
+                                       std::make_unique<ActiveChannelWaveDeviceLayout>() };
     std::unique_ptr<tracktion::engine::Edit> edit;
     RealtimeSanityCheck realtimeCheck;
     tracktion::engine::LevelMeasurer::Client inputLevelClient;

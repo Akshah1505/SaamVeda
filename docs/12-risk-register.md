@@ -254,7 +254,7 @@ A single development machine holding all work.
 
 ## Summary
 
-| ID > **Status update 2026-08-04 — the Application Control risk has materialised.**
+> **Status update 2026-08-04 — the Application Control risk has materialised.**
 > Smart App Control is **Enforced** on the development machine
 > (`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState = 1`) and blocks
 > freshly linked, unsigned executables with CodeIntegrity event 3077. It is intermittent: the test
@@ -270,34 +270,49 @@ A single development machine holding all work.
 > switched back on without reinstalling Windows.** Signing the binary does not help, because Smart
 > App Control wants a signature it already trusts, not merely a valid one.
 >
-> Until it is decided, treat "the application ran" as something to confirm, not assume, and record
-> the demo video early as roadmap §13 already requires.
+> **Closed 2026-09-17.** The machine's owner turned Smart App Control off
+> (`VerifiedAndReputablePolicyState = 0`) and freshly linked binaries have run on demand since.
+> R1 stays on the register: the policy state is worth re-checking before the demo, and a different
+> presentation machine brings it straight back. Record the demo video early as roadmap §13 already
+> requires.
 
-> **Open issue 2026-09-17 — audio-thread allocations once inputs are open.**
-> With input channels open, the Debug allocation detector reports roughly 40,000 allocations per
-> second on the audio thread. Traced, with captured stacks, to a single site:
-> `jassertfalse` at `tracktion_WaveInputDevice.cpp:1197`, in
-> `WaveInputDeviceInstance::copyIncomingDataIntoBuffer`. tracktion builds its wave input from the
-> device's full channel list, but only the *active* channels reach the callback; a channel index
-> that is out of range trips the assertion on every block. `jassertfalse` calls
-> `juce::logAssertion`, which formats a string — hence the allocations.
+> **Resolved 2026-09-17 — audio-thread allocations once inputs are open.**
+> With input channels open, the Debug allocation detector reported roughly 40,000 allocations per
+> second on the audio thread — 1,025,457 over a short session, with audio load at 12–13%.
 >
-> **This does not exist in a Release build.** `JUCE_LOG_CURRENT_ASSERTION` compiles to nothing
-> unless `JUCE_DEBUG` or `JUCE_LOG_ASSERTIONS` is set, so the allocation storm is a Debug artifact.
-> The mismatch behind it is real, though: one input channel is being silently dropped.
+> Captured stacks pointed at `jassertfalse` in
+> `WaveInputDeviceInstance::copyIncomingDataIntoBuffer` (`tracktion_WaveInputDevice.cpp:1197`),
+> which calls `juce::logAssertion` and formats a string. The assertion was a symptom. The cause was
+> the wave device layout: tracktion's default pairs up every channel the driver *names*, and this
+> machine's WASAPI endpoint names **64** inputs while only **2** are active. That produced 32 stereo
+> wave input devices, of which 31 index past the end of the callback's channel array on every block.
 >
-> Activating every input channel the device reports, and calling
-> `DeviceManager::rescanWaveDeviceList()`, removes it completely — allocations fell from 1,025,457
-> to 2 and audio load from 13% to 1%. It also stopped any input reaching the device, so it was
-> reverted. Note that `setAudioDeviceSetup` **persists** to
-> `%APPDATA%/SaamVeda Studio/Settings.xml`; a bad channel mask survives restarts and has to be
-> cleared there.
+> Each stray device cost twice. The assertion is Debug-only, but
+> `WaveInputDevice::consumeNextAudioBlock` also heap-allocates a scratch `AudioBuffer` for every
+> enabled device with no instance attached — **that one allocates in Release too**, so this was never
+> purely a Debug artifact.
 >
-> Next step is to make tracktion's wave input channel configuration follow the device's active
-> channels rather than its full list. Until then, run the Debug allocation counter with this known
-> offender in mind, and take a Release measurement before trusting it.
+> Fixed in [`src/engine/WaveDeviceLayout.h`](../src/engine/WaveDeviceLayout.h) by implementing
+> `EngineBehaviour::describeWaveDevices`, which builds the layout from the device's *active*
+> channels rather than its named ones. tracktion treats a host-supplied layout as authoritative and
+> skips both its channel-coverage pass and persisting the layout to settings, so there is no stale
+> state to clear.
+>
+> | | before | after |
+> |---|---:|---:|
+> | audio-thread allocations | 1,025,457 | 14 |
+> | audio load | 12% | 1% |
+> | wave input devices | 32 | 1 |
+>
+> Recording was re-verified after the change: arm, record, stop, and a clip with signal on the
+> timeline. An earlier attempt — activating all 64 channels and calling `rescanWaveDeviceList()` —
+> also removed the allocations but silenced the input, and is not what shipped.
+>
+> One trap worth keeping: `setAudioDeviceSetup` **persists** to
+> `%APPDATA%/SaamVeda Studio/Settings.xml`. A bad `audioDeviceInChans` mask survives restarts and a
+> code revert, and has to be cleared in that file.
 
-| Risk | Severity |
+| ID | Risk | Severity |
 |---|---|:---:|
 | R1 | Application Control blocks the toolchain | 🔴 |
 | R2 | Scope expectation versus deliverable | 🔴 |

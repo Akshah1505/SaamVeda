@@ -46,6 +46,9 @@ public:
             an allocation per block on the audio thread. */
         int minimumBlockSize = 0;
         int maximumBlockSize = 0;
+
+        /** Input channels the device actually delivers to the callback. */
+        int inputChannels = 0;
     };
 
     RealtimeSanityCheck() = default;

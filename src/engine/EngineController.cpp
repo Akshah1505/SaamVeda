@@ -386,6 +386,32 @@ te::InputDeviceInstance* EngineController::firstWaveInput() const
     return nullptr;
 }
 
+juce::String EngineController::inputChannelDiagnostics() const
+{
+    auto& self = *const_cast<EngineController*> (this);
+    auto& manager = self.audioDeviceManager();
+
+    const auto namedChannels = manager.getCurrentAudioDevice() != nullptr
+        ? manager.getCurrentAudioDevice()->getInputChannelNames().size() : -1;
+    const auto activeChannels = manager.getAudioDeviceSetup()
+                                    .inputChannels.countNumberOfSetBits();
+
+    // Every wave input device tracktion built, not just the one we record
+    // through: the ones we never touch are what used to cost the audio thread.
+    const auto waveInputs = self.engine.getDeviceManager().getWaveInputDevices();
+
+    auto highestIndex = -1;
+    for (auto* wave : waveInputs)
+        if (wave != nullptr)
+            for (const auto& channel : wave->getChannels())
+                highestIndex = juce::jmax (highestIndex, channel.indexInDevice);
+
+    return "devices=" + juce::String ((int) waveInputs.size())
+         + " highestChan=" + juce::String (highestIndex)
+         + " named=" + juce::String (namedChannels)
+         + " active=" + juce::String (activeChannels);
+}
+
 void EngineController::disableRetrospectiveRecord()
 {
     auto* context = edit->getTransport().getCurrentPlaybackContext();
