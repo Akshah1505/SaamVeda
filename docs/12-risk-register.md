@@ -273,6 +273,30 @@ A single development machine holding all work.
 > Until it is decided, treat "the application ran" as something to confirm, not assume, and record
 > the demo video early as roadmap §13 already requires.
 
+> **Open issue 2026-09-17 — audio-thread allocations once inputs are open.**
+> With input channels open, the Debug allocation detector reports roughly 40,000 allocations per
+> second on the audio thread. Traced, with captured stacks, to a single site:
+> `jassertfalse` at `tracktion_WaveInputDevice.cpp:1197`, in
+> `WaveInputDeviceInstance::copyIncomingDataIntoBuffer`. tracktion builds its wave input from the
+> device's full channel list, but only the *active* channels reach the callback; a channel index
+> that is out of range trips the assertion on every block. `jassertfalse` calls
+> `juce::logAssertion`, which formats a string — hence the allocations.
+>
+> **This does not exist in a Release build.** `JUCE_LOG_CURRENT_ASSERTION` compiles to nothing
+> unless `JUCE_DEBUG` or `JUCE_LOG_ASSERTIONS` is set, so the allocation storm is a Debug artifact.
+> The mismatch behind it is real, though: one input channel is being silently dropped.
+>
+> Activating every input channel the device reports, and calling
+> `DeviceManager::rescanWaveDeviceList()`, removes it completely — allocations fell from 1,025,457
+> to 2 and audio load from 13% to 1%. It also stopped any input reaching the device, so it was
+> reverted. Note that `setAudioDeviceSetup` **persists** to
+> `%APPDATA%/SaamVeda Studio/Settings.xml`; a bad channel mask survives restarts and has to be
+> cleared there.
+>
+> Next step is to make tracktion's wave input channel configuration follow the device's active
+> channels rather than its full list. Until then, run the Debug allocation counter with this known
+> offender in mind, and take a Release measurement before trusting it.
+
 | Risk | Severity |
 |---|---|:---:|
 | R1 | Application Control blocks the toolchain | 🔴 |

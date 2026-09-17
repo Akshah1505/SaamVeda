@@ -110,6 +110,7 @@ private:
     PlaylistPanel playlist;
 
     double timelineLengthSeconds = 60.0;
+    bool realtimeOffendersDumped = false;
     juce::String selectedClipName;
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::ThreadPool analysisPool { 1 };

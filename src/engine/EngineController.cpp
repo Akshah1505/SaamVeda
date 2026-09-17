@@ -26,9 +26,8 @@ namespace
 
 EngineController::EngineController()
 {
-    // Two input channels as well as two output: a DAW that cannot see an input
-    // cannot arm a track. The manifest already declares microphone use, and the
-    // inputs can be switched off again in Audio Settings.
+    // A DAW that cannot see an input cannot arm a track, so inputs are opened
+    // here. The manifest already declares microphone use.
     engine.getDeviceManager().initialise (2, 2);
     edit = te::Edit::createSingleTrackEdit (engine, te::Edit::EditRole::forEditing);
 
@@ -387,6 +386,22 @@ te::InputDeviceInstance* EngineController::firstWaveInput() const
     return nullptr;
 }
 
+void EngineController::disableRetrospectiveRecord()
+{
+    auto* context = edit->getTransport().getCurrentPlaybackContext();
+    if (context == nullptr)
+        return;
+
+    // tracktion keeps a rolling buffer of recent input so a take you forgot to
+    // record can be recovered afterwards. Maintaining it happens on the audio
+    // thread - a buffer resize, a std::map lookup keyed on the Edit's project
+    // item, and a FIFO write, every block - which is exactly the allocation the
+    // detector was reporting. We do not offer retrospective record, so we
+    // should not pay for it. Setting the lock is what makes
+    // WaveInputDevice::consumeNextAudioBlock skip the whole path.
+    te::InputDevice::setRetrospectiveLock (engine, context->getAllInputs(), true);
+}
+
 void EngineController::attachLevelClient()
 {
     auto* instance = firstWaveInput();
@@ -401,7 +416,14 @@ void EngineController::attachLevelClient()
     attachedLevelMeasurer = measurer;
 
     if (attachedLevelMeasurer != nullptr)
+    {
         attachedLevelMeasurer->addClient (inputLevelClient);
+
+        // This runs the first time an input instance actually exists, which is
+        // the earliest the retrospective lock can be applied - at construction
+        // there is nothing to apply it to.
+        disableRetrospectiveRecord();
+    }
 }
 
 juce::StringArray EngineController::inputDeviceNames() const
@@ -422,6 +444,7 @@ bool EngineController::setTrackArmed (const juce::String& trackId, bool armed)
         return false;
 
     edit->getTransport().ensureContextAllocated();
+    disableRetrospectiveRecord();
     attachLevelClient();
 
     auto* instance = firstWaveInput();

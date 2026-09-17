@@ -69,6 +69,12 @@ target_link_libraries(SaamVedaStudio PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 
+# dbghelp symbolises the stacks the audio-thread allocation detector captures.
+# Debug only, because the detector itself is Debug only.
+if (MSVC)
+    target_link_libraries(SaamVedaStudio PRIVATE $<$<CONFIG:Debug>:dbghelp>)
+endif()
+
 if (MSVC)
     target_compile_options(SaamVedaStudio PRIVATE /W4)
 endif()

@@ -120,6 +120,7 @@ public:
     int trackCount() const;
 
     RealtimeSanityCheck::Report realtimeReport() const { return realtimeCheck.report(); }
+    juce::StringArray realtimeOffenders() { return realtimeCheck.describeOffenders(); }
 
     juce::AudioDeviceManager& audioDeviceManager();
     juce::String audioFileWildcard() const;
@@ -142,6 +143,7 @@ private:
                             const juce::ReferenceCountedArray<tracktion::engine::Clip>&) override;
 
     tracktion::engine::InputDeviceInstance* firstWaveInput() const;
+    void disableRetrospectiveRecord();
     void attachLevelClient();
 
     tracktion::engine::AudioTrack* trackForId (const juce::String& trackId) const;

@@ -347,10 +347,27 @@ void MainComponent::timerCallback()
     else if (realtime.allocations == 0)
         toolBar.setNotification (realtime.armed ? "RT check: clean" : "RT check: warming up", false);
     else
-        toolBar.setNotification ("RT allocations: " + juce::String (realtime.allocations)
-                                     + " (max " + juce::String (static_cast<int> (
-                                           realtime.largestAllocationBytes)) + " B)",
+    {
+        // Dump the captured stacks once, the first time anything is caught. A
+        // count in the corner says something is wrong; the file says what.
+        if (! realtimeOffendersDumped)
+        {
+            const auto offenders = engineController.realtimeOffenders();
+
+            if (! offenders.isEmpty())
+            {
+                realtimeOffendersDumped = true;
+                juce::File::getSpecialLocation (juce::File::tempDirectory)
+                    .getChildFile ("saamveda-rt-allocations.txt")
+                    .replaceWithText (offenders.joinIntoString (juce::newLine + juce::newLine));
+            }
+        }
+
+        toolBar.setNotification ("RT allocs " + juce::String (realtime.allocations)
+                                     + "  block " + juce::String (realtime.minimumBlockSize)
+                                     + "-" + juce::String (realtime.maximumBlockSize),
                                  true);
+    }
 }
 
 void MainComponent::updateTransportButtons()

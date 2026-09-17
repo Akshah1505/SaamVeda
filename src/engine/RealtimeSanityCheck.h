@@ -40,6 +40,12 @@ public:
         bool armed = false;        ///< true once past device warm-up
         int allocations = 0;
         size_t largestAllocationBytes = 0;
+
+        /** Smallest and largest block the device has delivered. A device that
+            varies its block size makes every downstream buffer resize, which is
+            an allocation per block on the audio thread. */
+        int minimumBlockSize = 0;
+        int maximumBlockSize = 0;
     };
 
     RealtimeSanityCheck() = default;
@@ -51,6 +57,15 @@ public:
 
     Report report() const;
     void reset();
+
+    /** Symbolised call stacks for the first few offending allocations.
+
+        Counting allocations says something is wrong; only a stack says what. The
+        first few are captured inside the hook - raw return addresses, no
+        allocation - and symbolised here, on the message thread, when asked.
+        Empty until something is caught, and always empty in release builds.
+    */
+    juce::StringArray describeOffenders();
 
     /** True when this build can actually detect anything. */
     static bool isAvailable() noexcept;
