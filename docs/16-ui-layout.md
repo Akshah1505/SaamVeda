@@ -60,6 +60,13 @@ because the rows have to line up across four independent paint routines and they
 window permanently. It is a setup step performed once, not a working surface, so it lives behind
 **Options → Audio Settings...**. That change alone roughly doubled the arrangement area.
 
+**Recording setup lives in the Options menu, not on a track.** *Recording Input*, *Monitor Input*
+and *Count-In* sit under **Options**, alongside Audio Settings. They are session-wide rather than
+per-track because one input is the overwhelmingly common case, and putting a routing control on
+every track header would cost permanent space to serve the rare one. A real per-track routing
+matrix belongs with the mixer in Phase 8. The track header keeps only what changes while playing:
+arm, solo, mute.
+
 **The lane area always draws at least twelve rows.** An empty project shows `Track 1`…`Track 12` in
 grey with dimmed LEDs. A blank rectangle gives the user nothing to aim at; a track sheet does. Rows
 backed by a real session track get an accent tag, a live name, and a lit LED.

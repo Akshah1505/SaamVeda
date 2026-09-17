@@ -95,6 +95,23 @@ without dropout.
 **Exit criteria:** SRS-3.1–3.6; alignment within ±1 ms; 30-minute continuous recording; a killed
 process loses no audio.
 
+> **Measured 2026-09-17**, with `tools/recording-check/` against the WASAPI device on the
+> development machine. Every figure below is that harness's output, not an estimate.
+>
+> | Criterion | Result |
+> |---|---|
+> | Record placement | clip lands at 4.000 s when asked for 4.000 s — **0 ms** error; file length matches the clip to 1e-12 s |
+> | 30-minute continuous recording | **1800.88 s** recorded against 1800.91 s of wall clock — 30 ms short, 0 xruns, longest silence 0.19 ms |
+> | Overdub (SRS-3.2) | recorded onto track 2 while track 1 played, transport rolling, both clips present |
+> | Killed process (SRS-3.6) | killed 25 s in; 24 s readable immediately, **26.75 s** after startup recovery — nothing lost |
+> | Audio-thread allocations | **141** over 30 minutes, none of them recurring |
+>
+> Two things this table does **not** cover. The ±1 ms figure is where the clip is *placed*; the
+> acoustic round trip needs the outputs physically looped back to the inputs, and was not measured
+> at all. And the exit line lists SRS-3.5, MIDI recording, which this same roadmap schedules in
+> Phase 5 — a discrepancy in the plan, not work that was skipped, but worth reconciling rather than
+> quietly counting as done.
+
 ---
 
 ### Phase 5 — MIDI recording `Week 6`
@@ -271,5 +288,7 @@ make it a DAW rather than a demo.
 - Development starts immediately after toolchain installation
 - Roughly 15–20 hours per week alongside coursework
 - No hardware failure or driver incompatibility
-- The Application Control policy on the development machine does not block the toolchain — **this
-  is unverified and is the largest single schedule risk** (see [`12-risk-register.md`](12-risk-register.md))
+- The Application Control policy on the development machine does not block the toolchain —
+  **resolved 2026-09-17**: Smart App Control was blocking freshly linked binaries and has since been
+  turned off by the machine's owner. It remains a risk on any other machine
+  (see [`12-risk-register.md`](12-risk-register.md))

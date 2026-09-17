@@ -35,7 +35,12 @@ namespace
     // point is to record an allocation without making one.
     constexpr int maxOffenders = 6;
     constexpr int maxFrames = 40;
-    constexpr int captureAfterAllocations = 200000;
+    // Capture from the very first offender. This was 200,000 while the wave
+    // input channel mismatch was flooding the hook - capturing early then only
+    // recorded the flood, and the interesting stacks came from its steady
+    // state. With that fixed the baseline is a handful of allocations, so the
+    // first one caught is the one worth seeing.
+    constexpr int captureAfterAllocations = 0;
     std::atomic<int> capturedOffenders { 0 };
     void* offenderFrames[maxOffenders][maxFrames] {};
     unsigned short offenderFrameCount[maxOffenders] {};
@@ -64,9 +69,8 @@ namespace
             {
             }
 
-            // Sampled from the steady state, not from start-up. The first
-            // allocations after a device opens are setup work and say nothing
-            // about what the callback does once it is running.
+            // Start-up allocations are already excluded by the warm-up block
+            // count, so anything reaching here is worth a stack.
             const auto seenSoFar = allocationCount.load (std::memory_order_relaxed);
             const auto slot = capturedOffenders.load (std::memory_order_relaxed);
 

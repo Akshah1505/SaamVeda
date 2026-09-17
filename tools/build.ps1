@@ -4,6 +4,7 @@
 #   powershell -File tools\build.ps1 build
 #   powershell -File tools\build.ps1 test
 #   powershell -File tools\build.ps1 run
+#   powershell -File tools\build.ps1 build -Target SaamVedaStudio
 #
 # Toolchain locations are discovered by tools\toolchain.ps1; override with
 # SAAMVEDA_CMAKE / SAAMVEDA_NINJA / SAAMVEDA_VCVARS if needed.
@@ -13,7 +14,11 @@ param(
     [ValidateSet('configure', 'build', 'test', 'run', 'clean')]
     [string]$Task,
 
-    [string]$Config = 'Debug'
+    [string]$Config = 'Debug',
+
+    # Builds one target instead of everything. Useful when another target's
+    # executable is running and cannot be relinked.
+    [string]$Target = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,7 +73,11 @@ switch ($Task) {
             & cmake -S $Root -B $BuildDir -G Ninja "-DCMAKE_BUILD_TYPE=$Config"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
-        & cmake --build $BuildDir --parallel
+        if ($Target) {
+            & cmake --build $BuildDir --parallel --target $Target
+        } else {
+            & cmake --build $BuildDir --parallel
+        }
     }
     'test' {
         & ctest --test-dir $BuildDir --output-on-failure

@@ -234,7 +234,29 @@ MainComponent::MainComponent()
 
     playlist.timeline().setLength (timelineLengthSeconds);
     applySessionToUi();
-    setStatus ("Add a track to begin. Space plays, Enter returns to the start, Ctrl+Z undoes.");
+
+    // A take left half-written by a crash is repaired before anything else, so
+    // the first thing the user does after restarting cannot overwrite it.
+    const auto recovered = services::recoverInterruptedRecordings (
+        engine::StudioBehaviour::recordingsFolder());
+
+    if (recovered.isEmpty())
+    {
+        setStatus ("Add a track to begin. Space plays, Enter returns to the start, Ctrl+Z undoes.");
+    }
+    else
+    {
+        auto seconds = 0.0;
+        for (const auto& take : recovered)
+            seconds += take.secondsRecovered;
+
+        setStatus ("Recovered " + juce::String (seconds, 1) + " s from "
+                       + juce::String (recovered.size())
+                       + (recovered.size() == 1 ? " interrupted recording in "
+                                                : " interrupted recordings in ")
+                       + engine::StudioBehaviour::recordingsFolder().getFullPathName() + ".");
+    }
+
     startTimerHz (30);
 
     // Wide enough for the transport and tool rows to lay out without their left
@@ -888,11 +910,44 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const juce::String&)
             break;
 
         case 4: // OPTIONS
+        {
             menu.addItem (showAudioSettings, "Audio Settings...");
+
+            // Which input a track records from, and whether it is audible. Both
+            // are per-session rather than per-track: one input is the common
+            // case, and a track-by-track routing matrix is Phase 8 work.
+            const auto inputs = engineController.inputDeviceNames();
+            juce::PopupMenu inputMenu;
+
+            if (inputs.isEmpty())
+            {
+                inputMenu.addItem (inputSourceBase, "No inputs available", false);
+            }
+            else
+            {
+                for (int i = 0; i < inputs.size(); ++i)
+                    inputMenu.addItem (inputSourceBase + i, inputs[i], true,
+                                       i == engineController.inputIndex());
+            }
+
+            menu.addSubMenu ("Recording Input", inputMenu, ! inputs.isEmpty());
+            menu.addItem (toggleInputMonitoring, "Monitor Input", true,
+                          engineController.isInputMonitoring());
+
+            juce::PopupMenu countInMenu;
+            for (const auto bars : { 0, 1, 2 })
+                countInMenu.addItem (countInBase + bars,
+                                     bars == 0 ? "Off" : juce::String (bars)
+                                                             + (bars == 1 ? " bar" : " bars"),
+                                     true, engineController.countInBars() == bars);
+
+            menu.addSubMenu ("Count-In", countInMenu);
+
             menu.addSeparator();
             menu.addCommandItem (&commandManager, CommandIDs::toggleMetronome);
             menu.addCommandItem (&commandManager, CommandIDs::toggleLoop);
             break;
+        }
 
         case 5: // TOOLS
             menu.addCommandItem (&commandManager, CommandIDs::showTapTempo);
@@ -933,9 +988,44 @@ void MainComponent::menuItemSelected (int menuItemID, int)
             showAboutDialog();
             break;
 
+        case toggleInputMonitoring:
+            toggleInputMonitor();
+            break;
+
         default:
+            if (menuItemID >= inputSourceBase && menuItemID < inputSourceEnd)
+                setRecordingInput (menuItemID - inputSourceBase);
+            else if (menuItemID >= countInBase && menuItemID < countInEnd)
+                setCountIn (menuItemID - countInBase);
             break;
     }
+}
+
+void MainComponent::setRecordingInput (int index)
+{
+    const auto inputs = engineController.inputDeviceNames();
+
+    if (! juce::isPositiveAndBelow (index, inputs.size()))
+        return;
+
+    engineController.setInputIndex (index);
+    setStatus ("Recording input: " + inputs[index] + ".");
+}
+
+void MainComponent::setCountIn (int bars)
+{
+    engineController.setCountInBars (bars);
+    setStatus (bars == 0 ? "Count-in off."
+                         : "Count-in: " + juce::String (bars)
+                               + (bars == 1 ? " bar." : " bars."));
+}
+
+void MainComponent::toggleInputMonitor()
+{
+    const auto monitoring = ! engineController.isInputMonitoring();
+    engineController.setInputMonitoring (monitoring);
+    setStatus (monitoring ? "Input monitoring on - beware feedback on speakers."
+                          : "Input monitoring off.");
 }
 
 //==============================================================================

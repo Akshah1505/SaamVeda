@@ -312,6 +312,41 @@ A single development machine holding all work.
 > `%APPDATA%/SaamVeda Studio/Settings.xml`. A bad `audioDeviceInChans` mask survives restarts and a
 > code revert, and has to be cleared in that file.
 
+> **Open issue 2026-09-17 — a MIDI device appearing mid-take kills the recording.**
+> `DeviceManager::applyNewMidiDeviceList` calls `clearAllContextDevices()` and then
+> `reloadAllContextDevices()`, which runs `Edit::restartPlayback()`. Any recording in progress stops
+> and its clip is lost. Nothing is shown to the user: the transport simply leaves record.
+>
+> Found while building the recording check harness, which started recording before the first MIDI
+> scan had finished and lost every take to it. tracktion rescans MIDI every 4 seconds
+> (`SettingID::midiScanIntervalSeconds`) but returns early when the list is unchanged, so in practice
+> this fires when a device is plugged in or removed — including the first scan after startup, a
+> second or two in.
+>
+> Impact is real but narrow: plug in a MIDI keyboard during a take and the take is gone. It is worth
+> fixing before the demo, where a USB device being connected is entirely plausible. The likely
+> approach is to defer the device-list reload while `TransportControl::isRecording()`, which means
+> either an upstream change or intercepting the rescan.
+>
+> Not to be confused with a recording that stops because the disk is filling:
+> `DiskSpaceCheckTask` stops all transports below 50 MB free, on a 1-second timer, which looks
+> identical from the outside. tracktion reports both only through `juce::Logger`.
+
+> **Resolved 2026-09-17 — a crash lost the last few seconds of a take.**
+> tracktion writes recorded audio to disk continuously but only rewrites the WAV `data` chunk
+> length periodically. Kill the process and the samples past the last header update are physically
+> present and completely unreachable: measured at 3.08 s out of 21 s, and 2.75 s out of 26.75 s.
+> Every reader sees a shorter file, so the loss looks real.
+>
+> [`src/services/RecordingRecovery.cpp`](../src/services/RecordingRecovery.cpp) repairs this at
+> startup by rewriting the `data` and `RIFF` lengths from the bytes actually on disk. It is
+> conservative on purpose: a file whose `data` chunk is followed by anything that parses as another
+> chunk is left alone, because in a cleanly closed file that content is real. The cost of that
+> choice is a missed recovery, never a corrupted take.
+>
+> What it does not do is put the take back on the timeline — that needs project persistence in
+> Phase 12. Until then the file is repaired and the user re-imports it.
+
 | ID | Risk | Severity |
 |---|---|:---:|
 | R1 | Application Control blocks the toolchain | 🔴 |

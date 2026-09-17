@@ -72,7 +72,12 @@ public:
     /** Names of the wave inputs the device manager currently exposes. */
     juce::StringArray inputDeviceNames() const;
 
-    /** Arms a track: points the first available wave input at it and enables
+    /** Which of those inputs arming and metering use. Index into
+        inputDeviceNames(); out of range falls back to the first. */
+    int inputIndex() const;
+    void setInputIndex (int index);
+
+    /** Arms a track: points the selected wave input at it and enables
         recording. Returns false when there is no usable input. */
     bool setTrackArmed (const juce::String& trackId, bool armed);
     bool isTrackArmed (const juce::String& trackId) const;
@@ -138,6 +143,8 @@ private:
     RealtimeSanityCheck realtimeCheck;
     tracktion::engine::LevelMeasurer::Client inputLevelClient;
     tracktion::engine::LevelMeasurer* attachedLevelMeasurer = nullptr;
+    int selectedInput = 0;
+    bool monitoring = false;
 
     static const juce::Identifier sessionTrackIdProperty;
     static const juce::Identifier sessionClipIdProperty;
@@ -149,7 +156,7 @@ private:
                             tracktion::engine::EditItemID,
                             const juce::ReferenceCountedArray<tracktion::engine::Clip>&) override;
 
-    tracktion::engine::InputDeviceInstance* firstWaveInput() const;
+    tracktion::engine::InputDeviceInstance* selectedWaveInput() const;
     void disableRetrospectiveRecord();
     void attachLevelClient();
 

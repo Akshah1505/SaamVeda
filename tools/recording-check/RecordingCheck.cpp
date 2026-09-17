@@ -1,11 +1,13 @@
-/*  Measures the two Phase 4 acceptance criteria that need a real audio device
-    and real time, and so cannot live in the unit tests:
+/*  Measures the Phase 4 acceptance criteria that need a real audio device and
+    real elapsed time, and so cannot live in the unit tests:
 
       --soak <minutes>   a continuous recording completes with no gaps
       --alignment        a recorded track aligns with existing material
       --record <seconds> records, for the crash test: kill the process partway
                          through and then --analyse what reached the disk
+      --overdub <file>   records onto one track while another plays that file
       --analyse <file>   reports what is in a wav
+      --recover          repairs takes left half-written by a crash
 
     Run with no arguments to list the audio devices and exit. Results go to
     stdout as `KEY = value` lines and the exit code is 0 only when every
@@ -21,6 +23,8 @@
 
 #include "../../src/core/Session.h"
 #include "../../src/engine/EngineController.h"
+#include "../../src/engine/StudioBehaviour.h"
+#include "../../src/services/RecordingRecovery.h"
 
 namespace
 {
@@ -84,6 +88,7 @@ void waitForDeviceScan()
 struct RecordedTake
 {
     juce::File file;
+    juce::String trackId;
     double startSeconds = 0.0;
     double lengthSeconds = 0.0;
     bool received = false;
@@ -261,8 +266,17 @@ int runSoak (saamveda::engine::EngineController& engine, saamveda::core::Session
     std::cout << "soak.wallSeconds = " << wallSeconds << "\n";
     std::cout << "soak.stayedInRecord = " << (stillRecording ? "yes" : "no") << "\n";
     std::cout << "soak.clipReceived = " << (take.received ? "yes" : "no") << "\n";
-    std::cout << "soak.xruns = " << (xrunsAfter - xrunsBefore) << "\n";
+    // Printed as a pair, not just a delta: JUCE returns -1 when a device does
+    // not report xruns, and a delta of zero would then look like a clean run
+    // when it really means the question was never answered.
+    std::cout << "soak.xruns = " << (xrunsAfter - xrunsBefore)
+              << "  (counter " << xrunsBefore << " -> " << xrunsAfter << ")\n";
     std::cout << "soak.allocations = " << engine.realtimeReport().allocations << "\n";
+
+    // A count says something allocated; only a stack says what. Printing them
+    // here means a soak that drifts does not have to be run a second time.
+    for (const auto& offender : engine.realtimeOffenders())
+        std::cout << "soak.offender =\n" << offender.toStdString() << "\n";
 
     if (! take.received)
     {
@@ -484,6 +498,135 @@ int runRecord (saamveda::engine::EngineController& engine, saamveda::core::Sessi
     return 0;
 }
 
+/** Records onto one track while another plays back existing material.
+
+    SRS-3.2, and the Phase 4 demo: record a live instrument over an existing
+    track. Recording onto an empty edit does not exercise it - the playback
+    graph has nothing to render while the input is being captured.
+*/
+int runOverdub (saamveda::engine::EngineController& engine, saamveda::core::Session& session,
+                const juce::File& backingFile)
+{
+    using saamveda::core::Session;
+
+    if (! backingFile.existsAsFile())
+    {
+        std::cout << "FAIL = backing file not found: "
+                  << backingFile.getFullPathName().toStdString() << "\n";
+        return 1;
+    }
+
+    const auto backing = session.addTrack ("audio", "Backing");
+    const auto overdub = session.addTrack ("audio", "Overdub");
+    const auto backingId = backing.getProperty (Session::idProperty()).toString();
+    const auto overdubId = overdub.getProperty (Session::idProperty()).toString();
+    engine.synchronise (session);
+
+    // The session wants the length up front and the engine reports it only
+    // after importing, so it is read off the file first.
+    const auto backingAnalysis = analyse (backingFile, 1.0e-5f);
+    const auto clip = session.addAudioClip (backingId, backingFile,
+                                            backingAnalysis.lengthSeconds, 0.0);
+    const auto clipId = clip.getProperty (Session::idProperty()).toString();
+    const auto backingLength = engine.importAudioFile (backingFile, backingId, clipId,
+                                                       engine.tempo(), 0.0, 0.0);
+
+    std::cout << "overdub.backingFile = " << backingFile.getFullPathName().toStdString() << "\n";
+    std::cout << "overdub.backingSeconds = " << backingLength << "\n";
+
+    if (backingLength <= 0.0)
+    {
+        std::cout << "FAIL = backing track did not import\n";
+        return 1;
+    }
+
+    RecordedTake take;
+    engine.onClipRecorded = [&take] (juce::String trackId, juce::File file,
+                                     double start, double length)
+    {
+        take.file = file;
+        take.startSeconds = start;
+        take.lengthSeconds = length;
+        take.trackId = trackId;
+        take.received = true;
+    };
+
+    if (! engine.setTrackArmed (overdubId, true))
+    {
+        std::cout << "FAIL = could not arm the overdub track\n";
+        return 1;
+    }
+
+    engine.seek (0.0);
+    pump (0.5);
+    engine.startRecording();
+    pump (1.0);
+
+    if (! engine.isRecording())
+    {
+        std::cout << "FAIL = transport did not enter record\n";
+        return 1;
+    }
+
+    pump (5.0);
+
+    const auto positionWhileRecording = engine.positionSeconds();
+    engine.stopRecording (false);
+
+    for (auto waited = 0; waited < 30 && ! take.received; ++waited)
+        pump (1.0);
+
+    std::cout << "overdub.positionWhileRecording = " << positionWhileRecording << "\n";
+    std::cout << "overdub.clipReceived = " << (take.received ? "yes" : "no") << "\n";
+
+    if (! take.received)
+    {
+        std::cout << "FAIL = no clip was produced\n";
+        return 1;
+    }
+
+    const auto analysis = analyse (take.file, 1.0e-5f);
+
+    std::cout << "overdub.onOverdubTrack = "
+              << (take.trackId == overdubId ? "yes" : "no") << "\n";
+    std::cout << "overdub.recordedSeconds = " << analysis.lengthSeconds << "\n";
+    std::cout << "overdub.peak = " << analysis.peak << "\n";
+    std::cout << "overdub.backingStillPresent = "
+              << (session.clipCount() >= 1 ? "yes" : "no") << "\n";
+
+    // The backing track has to have been rolling, not merely present: a
+    // transport that never moved would record in sync with nothing.
+    const auto passed = take.trackId == overdubId
+                     && positionWhileRecording > 5.0
+                     && analysis.valid
+                     && analysis.peak > 0.0
+                     && session.clipCount() >= 1;
+
+    std::cout << "overdub.result = " << (passed ? "PASS" : "FAIL") << "\n";
+    return passed ? 0 : 1;
+}
+
+/** Repairs takes the application never got to close.
+
+    The same pass the application runs at startup, exposed here so the crash
+    test can show the difference between what a killed process leaves behind and
+    what is recoverable from it.
+*/
+int runRecover()
+{
+    const auto folder = saamveda::engine::StudioBehaviour::recordingsFolder();
+    const auto recovered = saamveda::services::recoverInterruptedRecordings (folder);
+
+    std::cout << "recover.folder = " << folder.getFullPathName().toStdString() << "\n";
+    std::cout << "recover.files = " << recovered.size() << "\n";
+
+    for (const auto& take : recovered)
+        std::cout << "recover.take = " << take.file.getFileName().toStdString()
+                  << "  +" << take.secondsRecovered << " s\n";
+
+    return 0;
+}
+
 /** Reads `--option value` and `--option=value` alike.
 
     juce::ArgumentList::getValueForOption handled neither form here - it
@@ -533,6 +676,9 @@ int main (int argc, char** argv)
     {
         // Reading a file back needs no audio device, so it runs before one is
         // opened - the crash test analyses a file while nothing else is live.
+        if (hasOption (arguments, "--recover"))
+            return runRecover();
+
         if (hasOption (arguments, "--analyse"))
             return runAnalyse (juce::File::getCurrentWorkingDirectory()
                                    .getChildFile (valueFor (arguments, "--analyse")));
@@ -545,6 +691,11 @@ int main (int argc, char** argv)
 
         if (hasOption (arguments, "--soak"))
             return runSoak (engine, session, valueFor (arguments, "--soak").getDoubleValue());
+
+        if (hasOption (arguments, "--overdub"))
+            return runOverdub (engine, session,
+                               juce::File::getCurrentWorkingDirectory()
+                                   .getChildFile (valueFor (arguments, "--overdub")));
 
         if (hasOption (arguments, "--record"))
             return runRecord (engine, session, valueFor (arguments, "--record").getDoubleValue());

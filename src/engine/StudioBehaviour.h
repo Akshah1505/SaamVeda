@@ -22,14 +22,19 @@ public:
         whatever folder the application happened to be launched from, and would
         silently produce no clip at all when that folder was not writable.
     */
-    juce::File getDefaultFolderForAudioRecordings (tracktion::engine::Edit&) override
+    static juce::File recordingsFolder()
     {
         auto music = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
 
         if (! music.isDirectory())
             music = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
 
-        auto folder = music.getChildFile ("SaamVeda Studio").getChildFile ("Recordings");
+        return music.getChildFile ("SaamVeda Studio").getChildFile ("Recordings");
+    }
+
+    juce::File getDefaultFolderForAudioRecordings (tracktion::engine::Edit&) override
+    {
+        auto folder = recordingsFolder();
         folder.createDirectory();
 
         return folder;

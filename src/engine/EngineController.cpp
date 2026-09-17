@@ -371,19 +371,81 @@ bool EngineController::moveClipToTrack (const juce::String& clipId,
 }
 
 //==============================================================================
-te::InputDeviceInstance* EngineController::firstWaveInput() const
+te::InputDeviceInstance* EngineController::selectedWaveInput() const
 {
     auto* context = edit->getTransport().getCurrentPlaybackContext();
     if (context == nullptr)
         return nullptr;
 
-    for (auto* instance : context->getAllInputs())
-        if (instance != nullptr
-            && instance->getInputDevice().getDeviceType() == te::InputDevice::waveDevice
-            && instance->getInputDevice().isEnabled())
-            return instance;
+    te::InputDeviceInstance* first = nullptr;
+    auto remaining = selectedInput;
 
-    return nullptr;
+    for (auto* instance : context->getAllInputs())
+    {
+        if (instance == nullptr
+             || instance->getInputDevice().getDeviceType() != te::InputDevice::waveDevice
+             || ! instance->getInputDevice().isEnabled())
+            continue;
+
+        if (first == nullptr)
+            first = instance;
+
+        if (remaining-- == 0)
+            return instance;
+    }
+
+    // Falling back to the first input rather than to nothing: a device that
+    // goes away should not silently disarm every track that was using it.
+    return first;
+}
+
+int EngineController::inputIndex() const
+{
+    return selectedInput;
+}
+
+void EngineController::setInputIndex (int index)
+{
+    const auto clamped = juce::jmax (0, index);
+
+    if (clamped == selectedInput)
+        return;
+
+    // Armed tracks have to move with the selection. Left behind on the old
+    // input they stay armed on something nothing reads: the header still shows
+    // a red R, and Rec refuses to start because armedTrackCount sees none.
+    auto* previous = selectedWaveInput();
+    std::vector<te::EditItemID> wereArmed;
+
+    if (previous != nullptr)
+    {
+        for (auto* track : te::getAudioTracks (*edit))
+            if (previous->isRecordingEnabled (track->itemID))
+                wereArmed.push_back (track->itemID);
+
+        for (const auto& id : wereArmed)
+        {
+            previous->setRecordingEnabled (id, false);
+            previous->removeTarget (id, nullptr);
+        }
+    }
+
+    selectedInput = clamped;
+
+    if (auto* next = selectedWaveInput())
+    {
+        for (const auto& id : wereArmed)
+            if (next->setTarget (id, true, nullptr).has_value())
+                next->setRecordingEnabled (id, true);
+
+        // Monitoring is a property of the device, so it does not follow the
+        // selection by itself.
+        next->getInputDevice().setMonitorMode (monitoring ? te::InputDevice::MonitorMode::on
+                                                          : te::InputDevice::MonitorMode::automatic);
+    }
+
+    // The level meter follows the selection too.
+    attachLevelClient();
 }
 
 juce::String EngineController::inputChannelDiagnostics() const
@@ -430,7 +492,7 @@ void EngineController::disableRetrospectiveRecord()
 
 void EngineController::attachLevelClient()
 {
-    auto* instance = firstWaveInput();
+    auto* instance = selectedWaveInput();
     auto* measurer = instance != nullptr ? &instance->getInputDevice().levelMeasurer : nullptr;
 
     if (measurer == attachedLevelMeasurer)
@@ -473,7 +535,7 @@ bool EngineController::setTrackArmed (const juce::String& trackId, bool armed)
     disableRetrospectiveRecord();
     attachLevelClient();
 
-    auto* instance = firstWaveInput();
+    auto* instance = selectedWaveInput();
     if (instance == nullptr)
         return false;
 
@@ -496,7 +558,7 @@ bool EngineController::setTrackArmed (const juce::String& trackId, bool armed)
 bool EngineController::isTrackArmed (const juce::String& trackId) const
 {
     auto* track = trackForId (trackId);
-    auto* instance = firstWaveInput();
+    auto* instance = selectedWaveInput();
 
     return track != nullptr && instance != nullptr
         && instance->isRecordingEnabled (track->itemID);
@@ -504,7 +566,7 @@ bool EngineController::isTrackArmed (const juce::String& trackId) const
 
 int EngineController::armedTrackCount() const
 {
-    auto* instance = firstWaveInput();
+    auto* instance = selectedWaveInput();
     if (instance == nullptr)
         return 0;
 
@@ -518,7 +580,9 @@ int EngineController::armedTrackCount() const
 
 void EngineController::setInputMonitoring (bool enabled)
 {
-    if (auto* instance = firstWaveInput())
+    monitoring = enabled;
+
+    if (auto* instance = selectedWaveInput())
         instance->getInputDevice().setMonitorMode (
             enabled ? te::InputDevice::MonitorMode::on
                     : te::InputDevice::MonitorMode::automatic);
@@ -526,10 +590,7 @@ void EngineController::setInputMonitoring (bool enabled)
 
 bool EngineController::isInputMonitoring() const
 {
-    if (auto* instance = firstWaveInput())
-        return instance->getInputDevice().getMonitorMode() == te::InputDevice::MonitorMode::on;
-
-    return false;
+    return monitoring;
 }
 
 float EngineController::inputLevelDb()

@@ -35,6 +35,7 @@ target_sources(SaamVedaStudio PRIVATE
     src/core/Session.cpp
     src/engine/EngineController.cpp
     src/engine/RealtimeSanityCheck.cpp
+    src/services/RecordingRecovery.cpp
     src/services/TempoDetector.cpp
     src/services/WaveformCache.cpp
     src/ui/ClipBrowser.cpp
@@ -89,7 +90,8 @@ target_sources(SaamVedaRecordingCheck PRIVATE
     tools/recording-check/RecordingCheck.cpp
     src/core/Session.cpp
     src/engine/EngineController.cpp
-    src/engine/RealtimeSanityCheck.cpp)
+    src/engine/RealtimeSanityCheck.cpp
+    src/services/RecordingRecovery.cpp)
 
 target_include_directories(SaamVedaRecordingCheck PRIVATE src)
 

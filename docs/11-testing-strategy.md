@@ -183,6 +183,33 @@ Timing bugs surface over hours, not minutes.
 
 Run at the end of Phase 11 and again in Phase 13, before the demo.
 
+### The recording check harness
+
+`tools/recording-check/` builds `SaamVedaRecordingCheck`, a console target that drives
+`EngineController` against a real audio device. It exists because the FR4 acceptance criteria cannot
+be expressed as unit tests: they need an open device, an input signal, and real elapsed time.
+
+| Mode | Measures |
+|---|---|
+| `--soak=<minutes>` | a continuous recording completes with no gaps |
+| `--alignment` | a recorded clip lands where the transport was, and the file matches the clip |
+| `--overdub <file>` | recording onto one track while another plays existing material (SRS-3.2) |
+| `--record=<seconds>` | records, to be killed partway through |
+| `--analyse <file>` | what actually reached the disk, used after that kill |
+
+`crash-test.ps1` beside it drives the last two together: it starts a recording, terminates the
+process outright with no chance to flush, and reads back what survived (SRS-3.6).
+
+Every mode prints `key = value` lines and exits non-zero on failure, so it can gate a release.
+It is deliberately **not** part of `ctest`: half an hour is too long for a commit gate, and a build
+machine with no input would fail it for the wrong reason.
+
+Two things worth knowing before reading its output. tracktion reports recording failures only
+through `juce::Logger`, so the harness mirrors that log to stdout - without it, a recording that
+stops itself looks exactly like one that produced nothing. And the MIDI device scan finishes a
+second or two after startup and reloads the device list, which rebuilds the playback context and
+kills any recording already in progress; the harness waits that out before it starts.
+
 ## 11. CI
 
 Local at minimum; GitHub Actions if the repository moves to a remote.

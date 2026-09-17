@@ -10,6 +10,7 @@
 #include "TapTempoComponent.h"
 #include "Toolbars.h"
 #include "../services/TempoDetector.h"
+#include "../services/RecordingRecovery.h"
 #include "../services/WaveformCache.h"
 
 namespace saamveda::ui
@@ -60,7 +61,16 @@ private:
         saveProject,
         quitApplication,
         showAudioSettings,
-        showAbout
+        showAbout,
+        toggleInputMonitoring,
+
+        /** Ranges for the two dynamic submenus. Bounded at both ends because
+            command items reach menuItemSelected too, and CommandIDs start at
+            0x5a00 - an open-ended "id >= base" test would swallow them. */
+        countInBase = 100,
+        countInEnd = 200,
+        inputSourceBase = 200,
+        inputSourceEnd = 1000
     };
 
     void timerCallback() override;
@@ -81,6 +91,9 @@ private:
     void showTapTempo();
     void showShortcuts();
     void showAudioSettingsDialog();
+    void setRecordingInput (int index);
+    void setCountIn (int bars);
+    void toggleInputMonitor();
     void showAboutDialog();
     void performUndo();
     void performRedo();
